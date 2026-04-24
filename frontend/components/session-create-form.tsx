@@ -30,7 +30,7 @@ export function SessionCreateForm() {
   const [structureText, setStructureText] = useState("");
   const [constraints, setConstraints] = useState(INITIAL_CONSTRAINTS);
   const [userNotes, setUserNotes] = useState(
-    "目标工作流：材料导入 -> 预处理 -> DFT 参数审查 -> 后端派发 -> 结果/知识库归档。"
+    "目标工作流：材料准备 -> 参数确认 -> 计算提交 -> 结果归档。"
   );
   const [message, setMessage] = useState<string | null>(null);
   const [pending, setPending] = useState(false);

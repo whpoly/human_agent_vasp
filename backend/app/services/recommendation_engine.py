@@ -100,9 +100,13 @@ class RecommendationEngine:
 
         stage = get_stage_definition(step.stage_key)
         step.status = "recommended"
+        rag_summary = (
+            f"命中本地 RAG 已验证案例 {len(similar_cases)} 个。"
+            if similar_cases
+            else "本地 RAG 暂无已验证案例，本次建议来自会话上下文和内置启发式规则。"
+        )
         step.recommendation_summary = (
-            f"已为{stage.name if stage else step.stage_name}推荐 {len(generated)} 个参数，"
-            f"参考了工作流上下文和 {len(similar_cases)} 个已验证案例。"
+            f"已为{stage.name if stage else step.stage_name}推荐 {len(generated)} 个参数。{rag_summary}"
         )
         step.warnings = [item.uncertainty_note for item in generated if item.uncertainty_note]
         step.context_snapshot = self._build_context_snapshot(session, request, similar_cases)
@@ -262,7 +266,7 @@ class RecommendationEngine:
         constraints = request.constraints or session.constraints or {}
         references = [{"entry_id": entry.id, "trust_score": entry.trust_score} for entry in similar_cases]
 
-        if stage_key == "structure-prep":
+        if stage_key in {"materials-prep", "structure-prep"}:
             return [
                 GeneratedParameter(
                     name="system_type",
@@ -285,6 +289,21 @@ class RecommendationEngine:
                     rationale="弛豫、静态计算或 DOS 等不同工作流需要不同的收敛与展宽选择。",
                     source_metadata={"references": references},
                 ),
+                GeneratedParameter(
+                    name="poscar_status",
+                    value="需要人工审查",
+                    category="验证",
+                    rationale="POSCAR/CIF 导入后仍需人工确认元素顺序、数量行、坐标模式和选择性动力学标记。",
+                    uncertainty_note="当前系统不会推断缺失的原子位置；专家应确认上传结构。",
+                    source_metadata={"references": references},
+                ),
+                GeneratedParameter(
+                    name="symmetry_notes",
+                    value="生成参数前先确认对称性和维度假设",
+                    category="验证",
+                    rationale="意外的对称性破缺或 slab/体相误判会影响 k 点密度、弛豫策略和赝势选择。",
+                    source_metadata={"references": references},
+                ),
             ]
 
         if stage_key == "poscar-validation":
@@ -305,6 +324,15 @@ class RecommendationEngine:
                     source_metadata={"references": references},
                 ),
             ]
+
+        if stage_key == "parameter-confirmation":
+            return self._build_parameter_confirmation_recommendations(
+                calc=calc,
+                material=material,
+                constraints=constraints,
+                request=request,
+                references=references,
+            )
 
         if stage_key == "incar-recommendation":
             return self._build_incar_recommendations(
@@ -364,7 +392,7 @@ class RecommendationEngine:
                 ),
             ]
 
-        if stage_key == "submission-prep":
+        if stage_key in {"calculation-submit", "submission-prep"}:
             scheduler_type = constraints.get("scheduler_type", "direct")
             return self._apply_draft_overrides(
                 [
@@ -400,7 +428,7 @@ class RecommendationEngine:
                 request.draft_parameters,
             )
 
-        if stage_key == "result-review":
+        if stage_key in {"result-archive", "result-review"}:
             return [
                 GeneratedParameter(
                     name="convergence_status",
@@ -429,6 +457,69 @@ class RecommendationEngine:
                 source_metadata={"references": references},
             )
         ]
+
+    def _build_parameter_confirmation_recommendations(
+        self,
+        *,
+        calc: str,
+        material: str,
+        constraints: dict,
+        request: RecommendationRequest,
+        references: list[dict],
+    ) -> list[GeneratedParameter]:
+        base_params = self._build_incar_recommendations(
+            calc=calc,
+            material=material,
+            constraints=constraints,
+            request=request,
+            references=references,
+        )
+        mesh = constraints.get("kpoint_density") or ("9x9x9" if "bulk" in material else "5x5x1")
+        species = constraints.get("species") or "请从最终 POSCAR 元素行确认"
+        rag_note = None if references else "本地 RAG 当前没有可复用计算案例；该建议需要人工重点审查。"
+        base_params.extend(
+            [
+                GeneratedParameter(
+                    name="mesh_strategy",
+                    value="gamma-centered" if "surface" in material or "2d" in material else "Monkhorst-Pack",
+                    category="采样",
+                    rationale="网格中心选择取决于维度、对称性和后续能带/DOS 目标。",
+                    uncertainty_note=rag_note,
+                    source_metadata={"references": references, "rag_store": "local-db"},
+                ),
+                GeneratedParameter(
+                    name="kpoint_density",
+                    value=mesh,
+                    category="采样",
+                    rationale="将 k 点密度与 INCAR 分开记录，便于用户独立审查布里渊区采样和计算成本。",
+                    uncertainty_note=rag_note,
+                    source_metadata={"references": references, "rag_store": "local-db"},
+                ),
+                GeneratedParameter(
+                    name="gamma_centered",
+                    value=True if "surface" in material or "2d" in material else False,
+                    category="采样",
+                    rationale="对于 slab 和低维体系，Gamma 中心网格常用于避免不合适的对称性约化。",
+                    source_metadata={"references": references, "rag_store": "local-db"},
+                ),
+                GeneratedParameter(
+                    name="potcar_symbols",
+                    value=species,
+                    category="赝势",
+                    rationale="POTCAR 顺序必须匹配最终 POSCAR 元素顺序；如果约束中没有元素列表，则保留人工确认。",
+                    uncertainty_note="当前 MVP 只保存赝势指引，不自动组装 POTCAR 二进制文件。",
+                    source_metadata={"references": references, "rag_store": "local-db"},
+                ),
+                GeneratedParameter(
+                    name="recommended_dataset",
+                    value="PAW_PBE",
+                    category="赝势",
+                    rationale="除非项目要求使用其他已验证数据集族，PAW_PBE 是生产级 VASP 工作流的常用基线。",
+                    source_metadata={"references": references, "rag_store": "local-db"},
+                ),
+            ]
+        )
+        return self._apply_draft_overrides(base_params, request.draft_parameters)
 
     def _build_incar_recommendations(
         self,

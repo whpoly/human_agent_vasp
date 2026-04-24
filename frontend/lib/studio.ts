@@ -84,60 +84,49 @@ export const STUDIO_MODULES: StudioModule[] = [
 ];
 
 export const STAGE_BLUEPRINTS: Record<string, StageBlueprint> = {
-  "structure-prep": {
-    title: "结构准备",
-    intent: "描述材料体系并记录结构来源。",
-    aiAction: "规范化导入备注并准备结构上下文。",
-    humanAction: "确认材料身份、来源和计算目标。",
-    prompt: "总结已提供的材料上下文，并给出清晰的结构准备检查清单。",
+  "materials-prep": {
+    title: "材料准备",
+    intent: "导入结构、检查 POSCAR/CIF，并记录材料来源和计算目标。",
+    aiAction: "整理结构上下文，提示明显格式问题和需要人工确认的结构风险。",
+    humanAction: "确认材料身份、来源、元素顺序、坐标模式和任务目标。",
+    prompt: "总结材料准备上下文，检查 POSCAR/CIF 关键字段，并列出需要科研人员确认的问题。",
   },
-  "poscar-validation": {
-    title: "POSCAR 验证",
-    intent: "检查元素顺序、原子数量、坐标模式和明显结构问题。",
-    aiAction: "标记可疑晶格/数量模式和缺失元数据。",
-    humanAction: "审查结构合理性检查，并确认或覆盖结论。",
-    prompt: "审查当前 POSCAR 内容，给出验证备注，并列出需要科研人员确认的问题。",
+  "parameter-confirmation": {
+    title: "参数确认",
+    intent: "AI 基于工作流上下文和本地 RAG 推荐 INCAR、KPOINTS 与 POTCAR，再由人工确认最终值。",
+    aiAction: "检索本地已验证案例，生成带理由、不确定性和来源线索的参数建议。",
+    humanAction: "审查推荐参数、编辑最终值，并确认是否进入下一步提交。",
+    prompt: "为该工作流推荐 INCAR、KPOINTS 和 POTCAR 参数，并解释关键科学取舍与不确定性。",
   },
-  "incar-recommendation": {
-    title: "INCAR 推荐",
-    intent: "建议保守且有充分理由的 DFT 控制参数。",
-    aiAction: "生成带有理由、不确定性和来源线索的 INCAR 建议。",
-    humanAction: "在参数被用于后续步骤前编辑并批准最终值。",
-    prompt: "为该工作流推荐 INCAR 参数，并解释关键选择背后的科学取舍。",
-  },
-  "kpoints-configuration": {
-    title: "KPOINTS 配置",
-    intent: "为所选任务估计合理的网格策略或路径设置。",
-    aiAction: "提出网格密度和对称性感知默认值。",
-    humanAction: "根据收敛风险和计算成本调整采样计划。",
-    prompt: "为该材料体系推荐 KPOINTS 策略，包含密度建议和注意事项。",
-  },
-  "potcar-guidance": {
-    title: "POTCAR 指引",
-    intent: "建议赝势族，并突出需要领域判断的情况。",
-    aiAction: "指出可能的 POTCAR 选择，以及半芯态或 +U 考量。",
-    humanAction: "确认目标数据集和课题组/机构约定。",
-    prompt: "为该体系推荐 POTCAR 指引，并指出需要专家审查的情况。",
-  },
-  "submission-prep": {
-    title: "提交准备",
+  "calculation-submit": {
+    title: "计算提交",
     intent: "把已批准的物理参数映射为计算资源决策和启动设置。",
     aiAction: "建议队列、任务数、墙时和启动方式。",
     humanAction: "核对机器、调度器和资源预算。",
     prompt: "为该工作流推荐提交设置，平衡稳定性、成本和周转时间。",
   },
-  "result-review": {
-    title: "结果审查",
-    intent: "总结执行后的收敛情况、质量信号和下一步行动。",
-    aiAction: "基于最新执行输出草拟审查摘要。",
-    humanAction: "验证科学充分性，并决定哪些内容进入知识库。",
-    prompt: "总结该工作流的执行输出、收敛状态和建议后续操作。",
+  "result-archive": {
+    title: "结果归档",
+    intent: "总结执行后的收敛情况、质量信号和归档决策。",
+    aiAction: "基于最新执行输出草拟审查摘要，并建议是否适合沉淀为本地 RAG 案例。",
+    humanAction: "验证科学充分性，并决定哪些结果与参数进入知识库。",
+    prompt: "总结该工作流的执行输出、收敛状态、质量风险和归档建议。",
   },
+};
+
+const LEGACY_STAGE_BLUEPRINTS: Record<string, StageBlueprint> = {
+  "structure-prep": STAGE_BLUEPRINTS["materials-prep"],
+  "poscar-validation": STAGE_BLUEPRINTS["materials-prep"],
+  "incar-recommendation": STAGE_BLUEPRINTS["parameter-confirmation"],
+  "kpoints-configuration": STAGE_BLUEPRINTS["parameter-confirmation"],
+  "potcar-guidance": STAGE_BLUEPRINTS["parameter-confirmation"],
+  "submission-prep": STAGE_BLUEPRINTS["calculation-submit"],
+  "result-review": STAGE_BLUEPRINTS["result-archive"],
 };
 
 export function getStageBlueprint(stageKey: string): StageBlueprint {
   return (
-    STAGE_BLUEPRINTS[stageKey] ?? {
+    STAGE_BLUEPRINTS[stageKey] ?? LEGACY_STAGE_BLUEPRINTS[stageKey] ?? {
       title: stageKey,
       intent: "未知阶段目标。",
       aiAction: "为所选阶段生成建议。",

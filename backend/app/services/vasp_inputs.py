@@ -4,6 +4,14 @@ from textwrap import dedent
 
 from app.models.workflow import WorkflowSession
 
+NON_INCAR_PARAMETER_KEYS = {
+    "mesh_strategy",
+    "kpoint_density",
+    "gamma_centered",
+    "potcar_symbols",
+    "recommended_dataset",
+}
+
 
 def collect_approved_parameters(session: WorkflowSession) -> dict[str, dict]:
     payload: dict[str, dict] = {}
@@ -25,10 +33,13 @@ def build_vasp_input_bundle(
 ) -> dict[str, str]:
     scheduler_overrides = scheduler_overrides or {}
     approved = collect_approved_parameters(session)
-    incar_params = approved.get("incar-recommendation", {})
-    kpoint_params = approved.get("kpoints-configuration", {})
-    submission_params = approved.get("submission-prep", {})
-    potcar_params = approved.get("potcar-guidance", {})
+    parameter_params = approved.get("parameter-confirmation", {})
+    incar_params = approved.get("incar-recommendation") or {
+        key: value for key, value in parameter_params.items() if key not in NON_INCAR_PARAMETER_KEYS
+    }
+    kpoint_params = approved.get("kpoints-configuration") or parameter_params
+    submission_params = approved.get("calculation-submit") or approved.get("submission-prep", {})
+    potcar_params = approved.get("potcar-guidance") or parameter_params
 
     incar_lines = [f"{key} = {value}" for key, value in incar_params.items()]
     incar_text = "\n".join(incar_lines) if incar_lines else "# Populate approved INCAR parameters before execution."

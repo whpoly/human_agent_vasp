@@ -16,8 +16,8 @@ from app.schemas.workflow import (
     WorkflowStepRead,
 )
 from app.services.audit import log_event
-from app.services.knowledge_base import KnowledgeBaseService
 from app.services.recommendation_engine import RecommendationEngine
+from app.services.knowledge_base import KnowledgeBaseService
 
 
 router = APIRouter(prefix="/workflow-sessions", tags=["workflow-sessions"])
@@ -137,16 +137,6 @@ def approve_workflow_step(
         mark_validated=payload.mark_validated,
     )
 
-    if payload.mark_validated:
-        session = db.get(WorkflowSession, session_id)
-        if session:
-            KnowledgeBaseService(db).promote_validated_step(
-                session=session,
-                step=updated,
-                trust_score=0.8,
-                validation_note=payload.note,
-            )
-
     db.commit()
     return db.scalar(
         select(WorkflowStep)
@@ -176,12 +166,29 @@ def validate_workflow_step(
 
     step.validated = True
     step.status = "validated"
-    KnowledgeBaseService(db).promote_validated_step(
-        session=session,
-        step=step,
-        trust_score=payload.trust_score,
-        validation_note=payload.validation_note,
-    )
+    knowledge_service = KnowledgeBaseService(db)
+    if step.stage_key in {"result-archive", "result-review"}:
+        parameter_steps = [
+            item
+            for item in session.steps
+            if item.stage_key
+            in {"parameter-confirmation", "incar-recommendation", "kpoints-configuration", "potcar-guidance"}
+            and item.validated
+        ]
+        for parameter_step in parameter_steps:
+            knowledge_service.promote_validated_step(
+                session=session,
+                step=parameter_step,
+                trust_score=payload.trust_score,
+                validation_note=payload.validation_note,
+            )
+    else:
+        knowledge_service.promote_validated_step(
+            session=session,
+            step=step,
+            trust_score=payload.trust_score,
+            validation_note=payload.validation_note,
+        )
     log_event(
         db,
         entity_type="workflow_step",

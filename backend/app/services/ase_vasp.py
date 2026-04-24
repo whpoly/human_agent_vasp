@@ -6,7 +6,7 @@ from typing import Any
 
 from app.core.config import get_settings
 from app.models.workflow import WorkflowSession
-from app.services.vasp_inputs import collect_approved_parameters
+from app.services.vasp_inputs import NON_INCAR_PARAMETER_KEYS, collect_approved_parameters
 
 
 SUPPORTED_ASE_VASP_TAGS = {
@@ -53,11 +53,12 @@ def build_ase_vasp_run_spec(
 ) -> dict[str, Any]:
     approved = collect_approved_parameters(session)
     calculator_kwargs, warnings = build_ase_vasp_kwargs(approved)
-    launch = launch_command or approved.get("submission-prep", {}).get("launch_command") or get_settings().ase_vasp_command
+    submission_params = approved.get("calculation-submit") or approved.get("submission-prep", {})
+    launch = launch_command or submission_params.get("launch_command") or get_settings().ase_vasp_command
 
     if not launch:
         warnings.append(
-            "No ASE VASP command was supplied. Set launch_command in submission-prep or ASE_VASP_COMMAND in the environment."
+            "No ASE VASP command was supplied. Set launch_command in calculation-submit or ASE_VASP_COMMAND in the environment."
         )
 
     return {
@@ -83,7 +84,10 @@ def build_ase_vasp_kwargs(approved_parameters: dict[str, dict]) -> tuple[dict[st
     warnings: list[str] = []
     calculator_kwargs: dict[str, Any] = {}
 
-    incar_params = approved_parameters.get("incar-recommendation", {})
+    parameter_params = approved_parameters.get("parameter-confirmation", {})
+    incar_params = approved_parameters.get("incar-recommendation") or {
+        key: value for key, value in parameter_params.items() if key not in NON_INCAR_PARAMETER_KEYS
+    }
     for key, value in incar_params.items():
         normalized_key = str(key).lower()
         if normalized_key == "ldau":
@@ -94,7 +98,7 @@ def build_ase_vasp_kwargs(approved_parameters: dict[str, dict]) -> tuple[dict[st
         else:
             warnings.append(f"Skipped INCAR tag {key} because it is not currently mapped into the ASE VASP adapter.")
 
-    kpoints_params = approved_parameters.get("kpoints-configuration", {})
+    kpoints_params = approved_parameters.get("kpoints-configuration") or parameter_params
     kpts = _parse_kpoints_mesh(kpoints_params.get("kpoint_density"))
     if kpts:
         calculator_kwargs["kpts"] = kpts
@@ -106,7 +110,7 @@ def build_ase_vasp_kwargs(approved_parameters: dict[str, dict]) -> tuple[dict[st
     else:
         calculator_kwargs.setdefault("gamma", True)
 
-    potcar_params = approved_parameters.get("potcar-guidance", {})
+    potcar_params = approved_parameters.get("potcar-guidance") or parameter_params
     dataset = str(potcar_params.get("recommended_dataset", "")).upper()
     if dataset == "PAW_PBE":
         calculator_kwargs.setdefault("xc", "PBE")

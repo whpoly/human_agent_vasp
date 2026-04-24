@@ -1,8 +1,6 @@
 import Link from "next/link";
-import { ArrowRight, Boxes, Cpu, Database, ListChecks, Settings } from "lucide-react";
+import { ArrowRight, Boxes, Cpu, Database, Settings } from "lucide-react";
 
-import { AiConfigPanel } from "@/components/ai-config-panel";
-import { STAGE_BLUEPRINTS } from "@/lib/studio";
 import type { KnowledgeEntry, SSHConnectionProfile, WorkflowSession } from "@/lib/types";
 
 interface DashboardOverviewProps {
@@ -15,26 +13,34 @@ interface DashboardOverviewProps {
 const FLOW_GROUPS = [
   {
     title: "材料准备",
-    icon: ListChecks,
-    stages: ["structure-prep", "poscar-validation"],
+    icon: Boxes,
+    description: "上传或粘贴 POSCAR/CIF，完成结构导入、预览和基础检查。",
+    href: "/materials",
+    actionLabel: "进入材料准备",
     tools: ["结构导入", "POSCAR 检查", "问题报告"],
   },
   {
     title: "参数确认",
     icon: Settings,
-    stages: ["incar-recommendation", "kpoints-configuration", "potcar-guidance"],
-    tools: ["INCAR 推荐", "KPOINTS 估算", "POTCAR 指引"],
+    description: "由 AI 结合本地 RAG 推荐 INCAR、KPOINTS 与 POTCAR，再人工确认最终值。",
+    href: "/sessions",
+    actionLabel: "进入参数确认",
+    tools: ["AI 推荐", "本地 RAG", "人工确认"],
   },
   {
     title: "计算提交",
     icon: Cpu,
-    stages: ["submission-prep"],
-    tools: ["后端路由", "资源预算", "提交预检"],
+    description: "把已确认的参数映射到后端、资源预算和提交预检。",
+    href: "/connections",
+    actionLabel: "进入计算配置",
+    tools: ["后端配置", "资源预算", "提交预检"],
   },
   {
     title: "结果归档",
     icon: Database,
-    stages: ["result-review"],
+    description: "审查计算输出，把确认后的有效案例归档到本地知识库。",
+    href: "/sessions",
+    actionLabel: "进入结果归档",
     tools: ["状态刷新", "输出摘要", "知识库归档"],
   },
 ];
@@ -50,70 +56,23 @@ export function DashboardOverview({
 
   return (
     <div className="content-stack">
-      <section className="hero studio-hero">
-        <div className="hero-copy">
-          <p className="eyebrow">DFT / VASP 流程首页</p>
-          <h1>按流程打开工具，完成检查后统一提交。</h1>
+      <section className="page-intro">
+        <div>
+          <p className="eyebrow">流程首页</p>
+          <h1>只从 1-4 流程进入工具。</h1>
           <p className="lede">
-            首页现在只作为流程总览：每个工作条目会在独立工作区里按步骤展开工具，
-            工具完成或报错后回到上一级流程，最后只保留一次提交动作。
+            主界面不再重复展示材料、工作条目、计算和 AI 配置入口；AI 配置统一在右上角，
+            具体工具只在对应流程里展开。
           </p>
-          <div className="hero-actions">
-            <Link className="primary-button icon-button-label" href="/materials">
-              打开材料准备
-              <ArrowRight size={16} />
-            </Link>
-            <Link className="primary-button icon-button-label" href="/sessions">
-              打开工作条目
-              <ArrowRight size={16} />
-            </Link>
-            <Link className="secondary-link icon-button-label" href="/connections">
-              计算配置
-              <ArrowRight size={16} />
-            </Link>
-          </div>
         </div>
-        <div className="hero-stats metric-grid">
-          <article className="metric-card">
-            <span className="metric-value">{activeSessions.length}</span>
-            <span className="metric-label">进行中条目</span>
-          </article>
-          <article className="metric-card">
-            <span className="metric-value">{connections.length}</span>
-            <span className="metric-label">计算连接</span>
-          </article>
-          <article className="metric-card">
-            <span className="metric-value">{validatedCount}</span>
-            <span className="metric-label">已验证知识</span>
-          </article>
-          <article className="metric-card">
-            <span className="metric-value">{Object.keys(STAGE_BLUEPRINTS).length}</span>
-            <span className="metric-label">流程步骤</span>
-          </article>
+        <div className="intro-status-row">
+          <span className="status-pill">进行中 {activeSessions.length}</span>
+          <span className="status-pill">计算连接 {connections.length}</span>
+          <span className="status-pill">本地 RAG {validatedCount}</span>
         </div>
       </section>
 
       {warning ? <p className="panel warning-text">{warning}</p> : null}
-
-      <section className="content-grid">
-        <article className="panel form-grid">
-          <div className="panel-header">
-            <div>
-              <p className="eyebrow">第一步</p>
-              <h2>材料准备工作台</h2>
-            </div>
-            <Boxes size={26} />
-          </div>
-          <p className="support-text">
-            上传 POSCAR 或 CIF 后进入三维结构视图，可执行扩胞、真空层、平移、居中、撤销和导出。
-          </p>
-          <Link className="secondary-link icon-button-label align-start" href="/materials">
-            进入材料准备
-            <ArrowRight size={16} />
-          </Link>
-        </article>
-        <AiConfigPanel />
-      </section>
 
       <section className="process-overview-grid">
         {FLOW_GROUPS.map((group, index) => {
@@ -128,14 +87,7 @@ export function DashboardOverview({
                 <p className="eyebrow">流程</p>
                 <h2>{group.title}</h2>
               </div>
-              <div className="stack-list">
-                {group.stages.map((stageKey) => (
-                  <div className="compact-stage-row" key={stageKey}>
-                    <strong>{STAGE_BLUEPRINTS[stageKey]?.title ?? stageKey}</strong>
-                    <p className="support-text">{STAGE_BLUEPRINTS[stageKey]?.intent}</p>
-                  </div>
-                ))}
-              </div>
+              <p className="support-text">{group.description}</p>
               <div className="tag-row">
                 {group.tools.map((tool) => (
                   <span className="tag-chip" key={tool}>
@@ -143,6 +95,10 @@ export function DashboardOverview({
                   </span>
                 ))}
               </div>
+              <Link className="secondary-link icon-button-label align-start" href={group.href}>
+                {group.actionLabel}
+                <ArrowRight size={16} />
+              </Link>
             </article>
           );
         })}

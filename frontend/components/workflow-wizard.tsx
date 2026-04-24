@@ -36,6 +36,7 @@ import {
   searchKnowledge,
   submitExecution,
   updateWorkflowSession,
+  validateStep,
 } from "@/lib/api";
 import {
   formatCalculationType,
@@ -110,6 +111,84 @@ const ROLE_LABELS: Record<ConversationMessage["role"], string> = {
 };
 
 const STAGE_TOOLS: Record<string, WorkflowTool[]> = {
+  "materials-prep": [
+    {
+      id: "source-import",
+      title: "结构导入器",
+      description: "粘贴 POSCAR/CIF、上传文件，并确认材料来源。",
+      actionLabel: "打开导入器",
+      icon: FileText,
+    },
+    {
+      id: "structure-preview",
+      title: "结构预览",
+      description: "查看行数、元素行、估算原子数和坐标模式。",
+      actionLabel: "打开预览",
+      icon: Wrench,
+    },
+    {
+      id: "poscar-check",
+      title: "POSCAR 检查器",
+      description: "检查元素顺序、数量行、坐标模式和常见格式问题。",
+      actionLabel: "打开检查器",
+      icon: CheckCircle2,
+    },
+  ],
+  "parameter-confirmation": [
+    {
+      id: "parameter-generator",
+      title: "AI 参数推荐",
+      description: "结合工作流上下文和本地 RAG，生成 INCAR、KPOINTS 与 POTCAR 建议。",
+      actionLabel: "生成建议",
+      icon: Settings,
+    },
+    {
+      id: "rag-compare",
+      title: "本地 RAG 对照",
+      description: "检索已验证计算案例；当前没有计算归档时会显示为空。",
+      actionLabel: "查看 RAG",
+      icon: Database,
+    },
+    {
+      id: "parameter-review",
+      title: "人工确认",
+      description: "编辑最终参数值并完成本流程，进入计算提交。",
+      actionLabel: "打开确认",
+      icon: CheckCircle2,
+    },
+  ],
+  "calculation-submit": [
+    {
+      id: "backend-route",
+      title: "后端路由",
+      description: "选择 ASE 或 SSH 集群，并确认远程工作目录。",
+      actionLabel: "打开路由",
+      icon: Cpu,
+    },
+    {
+      id: "resource-budget",
+      title: "资源预算",
+      description: "确认任务数、墙时、启动命令和队列策略。",
+      actionLabel: "打开预算",
+      icon: Settings,
+    },
+  ],
+  "result-archive": [
+    {
+      id: "status-refresh",
+      title: "状态刷新",
+      description: "刷新执行状态，查看输出摘要和错误片段。",
+      actionLabel: "打开状态",
+      icon: RefreshCw,
+    },
+    {
+      id: "archive-decision",
+      title: "归档决策",
+      description: "决定哪些结果与参数应进入可复用知识库。",
+      actionLabel: "打开归档",
+      icon: History,
+    },
+  ],
   "structure-prep": [
     {
       id: "source-import",
@@ -396,6 +475,15 @@ function previewSnapshot(snapshot: Record<string, JsonValue>): string[] {
     .map(([key, value]) => `${key}: ${serializeValue(value)}`);
 }
 
+function parameterSourceSummary(parameter: StepParameter): string {
+  const references = parameter.source_metadata?.references;
+  const referenceCount = Array.isArray(references) ? references.length : 0;
+  if (referenceCount > 0) {
+    return `本地 RAG 引用 ${referenceCount} 个已验证案例`;
+  }
+  return "本地 RAG 暂无案例，来自上下文和内置启发式规则";
+}
+
 function getToolsForStage(stageKey: string): WorkflowTool[] {
   return STAGE_TOOLS[stageKey] ?? DEFAULT_TOOLS;
 }
@@ -411,7 +499,7 @@ function isStepComplete(step: WorkflowStep | undefined): boolean {
 export function WorkflowWizard({ initialSession, connections }: WorkflowWizardProps) {
   const [session, setSession] = useState(initialSession);
   const [activeStageKey, setActiveStageKey] = useState(
-    initialSession.current_stage_key ?? initialSession.steps[0]?.stage_key ?? "structure-prep"
+    initialSession.current_stage_key ?? initialSession.steps[0]?.stage_key ?? "materials-prep"
   );
   const [openTool, setOpenTool] = useState<{ stageKey: string; toolId: string } | null>(null);
   const [toolResults, setToolResults] = useState<Record<string, ToolResult>>({});
@@ -469,6 +557,14 @@ export function WorkflowWizard({ initialSession, connections }: WorkflowWizardPr
     return getToolsForStage(openTool.stageKey).find((tool) => tool.id === openTool.toolId) ?? null;
   }, [openTool]);
   const finalReady = orderedSteps.length > 0 && orderedSteps.every((step) => isStepComplete(step));
+  const isParameterStage = [
+    "parameter-confirmation",
+    "incar-recommendation",
+    "kpoints-configuration",
+    "potcar-guidance",
+  ].includes(activeStageKey);
+  const isCalculationStage = ["calculation-submit", "submission-prep"].includes(activeStageKey);
+  const isResultStage = ["result-archive", "result-review"].includes(activeStageKey);
 
   useEffect(() => {
     setDraftValues(buildDraftMap(currentStep));
@@ -574,23 +670,26 @@ export function WorkflowWizard({ initialSession, connections }: WorkflowWizardPr
   async function handleSaveMaterialsContext() {
     setBusyKey("save-materials");
     setMessage(null);
+    const materialsStageKey = orderedSteps.some((step) => step.stage_key === "materials-prep")
+      ? "materials-prep"
+      : "structure-prep";
     try {
       const updated = await updateWorkflowSession(session.id, {
         structure_text: poscarText || null,
         user_notes: materialsBrief || null,
-        current_stage_key: "structure-prep",
+        current_stage_key: materialsStageKey,
       });
       setSession(updated);
-      setActiveStageKey(updated.current_stage_key ?? "structure-prep");
+      setActiveStageKey(updated.current_stage_key ?? materialsStageKey);
       await appendChat(
         "user",
         `已更新材料导入上下文${uploadedName ? `，来源文件：${uploadedName}` : ""}。`,
-        "structure-prep"
+        materialsStageKey
       );
       await appendChat(
         "assistant",
         "材料导入已保存。可以继续打开工具检查，或生成阶段建议。",
-        "structure-prep"
+        materialsStageKey
       );
       setMessage("材料上下文已保存。");
     } catch (error) {
@@ -657,23 +756,36 @@ export function WorkflowWizard({ initialSession, connections }: WorkflowWizardPr
         note: approvalNote || null,
         mark_validated: true,
       });
-      setSession((current) => updateStep(current, nextStep));
+      const canArchiveToKnowledge = ["result-archive", "result-review"].includes(nextStep.stage_key) && executions.length > 0;
+      const finalizedStep = canArchiveToKnowledge
+        ? await validateStep(session.id, nextStep.id, {
+            validation_note: approvalNote || "结果归档确认。",
+            trust_score: 0.8,
+          })
+        : nextStep;
+      setSession((current) => updateStep(current, finalizedStep));
       setKnowledgeRefreshTick((current) => current + 1);
       await appendChat(
         "user",
-        `已完成 ${stageTitle(nextStep.stage_key, nextStep.stage_name)}。`,
-        nextStep.stage_key,
-        nextStep.id
+        `已完成 ${stageTitle(finalizedStep.stage_key, finalizedStep.stage_name)}。`,
+        finalizedStep.stage_key,
+        finalizedStep.id
       );
       await appendChat(
         "assistant",
-        `${stageTitle(nextStep.stage_key, nextStep.stage_name)} 已保存为完成，并加入可复用知识库。`,
-        nextStep.stage_key,
-        nextStep.id
+        canArchiveToKnowledge
+          ? `${stageTitle(finalizedStep.stage_key, finalizedStep.stage_name)} 已归档到本地 RAG 知识库。`
+          : `${stageTitle(finalizedStep.stage_key, finalizedStep.stage_name)} 已保存为完成。计算完成并人工归档后才会进入本地 RAG 知识库。`,
+        finalizedStep.stage_key,
+        finalizedStep.id
       );
       setApprovalNote("");
-      setActiveStageKey(getNextStageKey(orderedSteps, nextStep.stage_key));
-      setMessage("该流程已完成，已返回上一级流程轨道。");
+      setActiveStageKey(getNextStageKey(orderedSteps, finalizedStep.stage_key));
+      setMessage(
+        canArchiveToKnowledge
+          ? "该流程已完成，并已写入本地 RAG 知识库。"
+          : "该流程已完成，已返回上一级流程轨道。"
+      );
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "无法完成该流程。");
     } finally {
@@ -692,7 +804,7 @@ export function WorkflowWizard({ initialSession, connections }: WorkflowWizardPr
     await appendChat(
       "user",
       `请求通过 ${executionBackend.toUpperCase()} 执行，启动命令为 ${launchCommand || "默认值"}。`,
-      "submission-prep",
+      "calculation-submit",
       currentStep?.id
     );
 
@@ -712,7 +824,7 @@ export function WorkflowWizard({ initialSession, connections }: WorkflowWizardPr
       await appendChat(
         "assistant",
         `执行已提交。状态=${execution.status} 路径=${execution.remote_path}`,
-        "submission-prep",
+        "calculation-submit",
         currentStep?.id
       );
       setMessage("已提交。下面可以刷新状态并查看输出。");
@@ -733,7 +845,7 @@ export function WorkflowWizard({ initialSession, connections }: WorkflowWizardPr
       await appendChat(
         "system",
         `执行 ${refreshed.id} 已刷新：状态=${refreshed.status}。`,
-        "result-review",
+        "result-archive",
         currentStep?.id
       );
       setMessage(`执行 ${refreshed.id.slice(0, 8)} 已刷新。`);
@@ -822,6 +934,37 @@ export function WorkflowWizard({ initialSession, connections }: WorkflowWizardPr
       );
     }
 
+    if (tool.id === "parameter-generator") {
+      return (
+        <div className="stack-list">
+          <div className="mini-grid">
+            <div className="mini-metric">
+              <strong>本地 RAG 命中</strong>
+              <span>{knowledgeMatches.length}</span>
+              <p className="support-text">
+                {knowledgeMatches.length > 0 ? "将作为参数推荐参考。" : "暂无已验证计算案例。"}
+              </p>
+            </div>
+            <div className="mini-metric">
+              <strong>当前参数</strong>
+              <span>{currentStep?.parameters.length ?? 0}</span>
+              <p className="support-text">生成后可在下方参数确认表中编辑最终值。</p>
+            </div>
+          </div>
+          <button
+            className="primary-button icon-button-label align-start"
+            disabled={busyKey === `generate-${activeStageKey}`}
+            onClick={() => handleGenerateRecommendations(activeStageKey)}
+            type="button"
+          >
+            <Wrench size={16} />
+            {busyKey === `generate-${activeStageKey}` ? "生成中..." : "生成 AI 参数建议"}
+          </button>
+          {knowledgeNote ? <p className="muted-text">{knowledgeNote}</p> : null}
+        </div>
+      );
+    }
+
     if (tool.id === "rag-compare") {
       return (
         <div className="stack-list">
@@ -840,6 +983,33 @@ export function WorkflowWizard({ initialSession, connections }: WorkflowWizardPr
             </article>
           ))}
           {knowledgeNote ? <p className="muted-text">{knowledgeNote}</p> : null}
+        </div>
+      );
+    }
+
+    if (tool.id === "parameter-review") {
+      return (
+        <div className="stack-list">
+          {currentStep?.recommendation_summary ? (
+            <div className="hint-box">
+              <strong>推荐摘要</strong>
+              <p className="support-text">{currentStep.recommendation_summary}</p>
+            </div>
+          ) : null}
+          {currentStep && currentStep.parameters.length > 0 ? (
+            <div className="parameter-preview-list">
+              {currentStep.parameters.slice(0, 8).map((parameter) => (
+                <div className="compact-stage-row" key={parameter.id}>
+                  <strong>{parameter.name}</strong>
+                  <p className="support-text">
+                    {serializeValue(parameter.suggested_value)} · {parameter.rationale}
+                  </p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="muted-text">还没有参数建议。请先生成 AI 参数建议。</p>
+          )}
         </div>
       );
     }
@@ -971,7 +1141,7 @@ export function WorkflowWizard({ initialSession, connections }: WorkflowWizardPr
           </article>
           <article className="metric-card">
             <span className="metric-value">{progress.validated}</span>
-            <span className="metric-label">已归档步骤</span>
+            <span className="metric-label">已确认步骤</span>
           </article>
           <article className="metric-card">
             <span className="metric-value">{executions.length}</span>
@@ -1146,7 +1316,7 @@ export function WorkflowWizard({ initialSession, connections }: WorkflowWizardPr
                 })}
               </section>
 
-              {activeStageKey === "structure-prep" ? (
+              {activeStageKey === "materials-prep" || activeStageKey === "structure-prep" ? (
                 <section className="content-grid dashboard-grid">
                   <article className="panel form-grid">
                     <div className="panel-header">
@@ -1203,11 +1373,22 @@ export function WorkflowWizard({ initialSession, connections }: WorkflowWizardPr
               <section className="panel form-grid">
                 <div className="panel-header">
                   <div>
-                    <p className="eyebrow">流程确认</p>
-                    <h2>生成建议并完成本步骤</h2>
+                    <p className="eyebrow">{isParameterStage ? "参数确认" : "流程确认"}</p>
+                    <h2>{isParameterStage ? "AI 推荐参数与人工确认" : "生成建议并完成本步骤"}</h2>
                   </div>
                   {currentStep ? <StatusPill status={currentStep.status} /> : null}
                 </div>
+
+                {isParameterStage ? (
+                  <div className="hint-box">
+                    <strong>本地 RAG</strong>
+                    <p className="support-text">
+                      {knowledgeMatches.length > 0
+                        ? `已命中 ${knowledgeMatches.length} 个本地已验证案例，AI 推荐会引用这些案例。`
+                        : "本地 RAG 暂无已验证计算案例；当前推荐会先使用工作流上下文和内置 VASP 启发式规则。"}
+                    </p>
+                  </div>
+                ) : null}
 
                 <label>
                   给智能体的提示备注
@@ -1227,7 +1408,7 @@ export function WorkflowWizard({ initialSession, connections }: WorkflowWizardPr
                     disabled={busyKey === `generate-${activeStageKey}`}
                   >
                     <Wrench size={16} />
-                    {busyKey === `generate-${activeStageKey}` ? "生成中..." : "生成建议"}
+                    {busyKey === `generate-${activeStageKey}` ? "生成中..." : isParameterStage ? "生成 AI 参数建议" : "生成建议"}
                   </button>
                   <button
                     className="primary-button icon-button-label"
@@ -1236,7 +1417,7 @@ export function WorkflowWizard({ initialSession, connections }: WorkflowWizardPr
                     type="button"
                   >
                     <CheckCircle2 size={16} />
-                    {busyKey === `approve-${activeStageKey}` ? "完成中..." : "完成本流程"}
+                    {busyKey === `approve-${activeStageKey}` ? "完成中..." : isParameterStage ? "确认参数" : "完成本流程"}
                   </button>
                 </div>
 
@@ -1263,6 +1444,7 @@ export function WorkflowWizard({ initialSession, connections }: WorkflowWizardPr
                         <div className="parameter-cell">
                           <pre>{serializeValue(parameter.suggested_value)}</pre>
                           <p className="support-text">{parameter.rationale}</p>
+                          <p className="meta-label">{parameterSourceSummary(parameter)}</p>
                           {parameter.uncertainty_note ? (
                             <p className="warning-text">{parameter.uncertainty_note}</p>
                           ) : null}
@@ -1278,7 +1460,11 @@ export function WorkflowWizard({ initialSession, connections }: WorkflowWizardPr
                     ))}
                   </div>
                 ) : (
-                  <p className="muted-text">该流程尚未生成参数。需要时先生成建议，再点击完成本流程。</p>
+                  <p className="muted-text">
+                    {isParameterStage
+                      ? "参数确认尚未生成建议。点击“生成 AI 参数建议”后，系统会先查本地 RAG；当前没有计算归档时会返回空案例。"
+                      : "该流程尚未生成参数。需要时先生成建议，再点击完成本流程。"}
+                  </p>
                 )}
 
                 <label>
@@ -1292,6 +1478,7 @@ export function WorkflowWizard({ initialSession, connections }: WorkflowWizardPr
                 </label>
               </section>
 
+              {isCalculationStage ? (
               <section className="panel form-grid">
                 <div className="panel-header">
                   <div>
@@ -1365,7 +1552,9 @@ export function WorkflowWizard({ initialSession, connections }: WorkflowWizardPr
                   {busyKey === "execute" ? "提交中..." : "提交"}
                 </button>
               </section>
+              ) : null}
 
+              {isResultStage ? (
               <section className="content-grid dashboard-grid">
                 <article className="panel">
                   <div className="panel-header">
@@ -1415,6 +1604,7 @@ export function WorkflowWizard({ initialSession, connections }: WorkflowWizardPr
                   </div>
                 </article>
               </section>
+              ) : null}
             </>
           )}
         </div>

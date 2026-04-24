@@ -42,11 +42,12 @@ def submit_execution(
         raise HTTPException(status_code=404, detail="Workflow session not found")
 
     approved = collect_approved_parameters(session)
-    if "incar-recommendation" not in approved:
-        raise HTTPException(status_code=400, detail="Execution requires at least an approved INCAR stage")
+    if "parameter-confirmation" not in approved and "incar-recommendation" not in approved:
+        raise HTTPException(status_code=400, detail="Execution requires approved parameters")
 
     backend = payload.execution_backend.lower().strip()
-    launch_command = payload.launch_command or approved.get("submission-prep", {}).get("launch_command", "vasp_std")
+    submission_params = approved.get("calculation-submit") or approved.get("submission-prep", {})
+    launch_command = payload.launch_command or submission_params.get("launch_command", "vasp_std")
     try:
         if backend == "ase":
             service = ASEExecutionService(db)
