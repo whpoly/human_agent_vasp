@@ -13,7 +13,7 @@ const INITIAL_CONSTRAINTS = JSON.stringify(
     scheduler_type: "slurm",
     ntasks: 64,
     walltime: "08:00:00",
-    notes: "Keep conservative convergence settings and preserve room for a later MLIP pre-relax lane."
+    notes: "保持保守收敛设置，并为后续 MLIP 预弛豫通道预留空间。"
   },
   null,
   2
@@ -21,16 +21,16 @@ const INITIAL_CONSTRAINTS = JSON.stringify(
 
 export function SessionCreateForm() {
   const router = useRouter();
-  const [title, setTitle] = useState("LiFePO4 Relaxation Studio");
+  const [title, setTitle] = useState("LiFePO4 弛豫工作室");
   const [goal, setGoal] = useState(
-    "Build a reviewable relaxation workflow with AI-assisted parameter suggestions, optional MLIP scouting, and a DFT execution handoff."
+    "构建一个可审查的弛豫工作流，包含 AI 辅助参数建议、可选 MLIP 预探以及 DFT 执行交接。"
   );
-  const [materialSystem, setMaterialSystem] = useState("battery cathode bulk");
+  const [materialSystem, setMaterialSystem] = useState("电池正极体相材料");
   const [calculationType, setCalculationType] = useState("relaxation");
   const [structureText, setStructureText] = useState("");
   const [constraints, setConstraints] = useState(INITIAL_CONSTRAINTS);
   const [userNotes, setUserNotes] = useState(
-    "Target workflow: material intake -> preprocessing -> DFT parameter review -> backend dispatch -> result/library capture."
+    "目标工作流：材料导入 -> 预处理 -> DFT 参数审查 -> 后端派发 -> 结果/知识库归档。"
   );
   const [message, setMessage] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -55,7 +55,7 @@ export function SessionCreateForm() {
         router.refresh();
       });
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to create workflow session.");
+      setMessage(error instanceof Error ? error.message : "无法创建工作流会话。");
       setPending(false);
     }
   }
@@ -64,21 +64,21 @@ export function SessionCreateForm() {
     <form className="panel form-grid" onSubmit={handleSubmit}>
       <div className="panel-header">
         <div>
-          <p className="eyebrow">New studio session</p>
-          <h2>Create a DFT workbench entry</h2>
+          <p className="eyebrow">新建工作室会话</p>
+          <h2>创建 DFT 工作台条目</h2>
         </div>
       </div>
 
       <label>
-        Session title
+        会话标题
         <input name="title" value={title} onChange={(event) => setTitle(event.target.value)} required />
       </label>
       <label>
-        Research goal
+        研究目标
         <textarea name="goal" rows={3} value={goal} onChange={(event) => setGoal(event.target.value)} required />
       </label>
       <label>
-        Material or system type
+        材料或体系类型
         <input
           name="materialSystem"
           value={materialSystem}
@@ -86,43 +86,43 @@ export function SessionCreateForm() {
         />
       </label>
       <label>
-        Calculation type
+        计算类型
         <select
           name="calculationType"
           value={calculationType}
           onChange={(event) => setCalculationType(event.target.value)}
         >
-          <option value="relaxation">Relaxation</option>
+          <option value="relaxation">结构弛豫</option>
           <option value="scf">SCF</option>
-          <option value="static">Static</option>
+          <option value="static">静态计算</option>
           <option value="dos">DOS</option>
-          <option value="band structure">Band structure</option>
-          <option value="single point">Single point</option>
-          <option value="surface reaction">Surface reaction</option>
+          <option value="band structure">能带结构</option>
+          <option value="single point">单点计算</option>
+          <option value="surface reaction">表面反应</option>
         </select>
       </label>
       <label>
-        Structure / POSCAR text
+        结构 / POSCAR 文本
         <textarea
           name="structureText"
           rows={6}
           value={structureText}
           onChange={(event) => setStructureText(event.target.value)}
-          placeholder="Paste POSCAR content now, or leave it blank and complete intake inside the studio page."
+          placeholder="现在粘贴 POSCAR 内容，或先留空，稍后在工作室页面完成材料导入。"
         />
       </label>
       <label>
-        Scientist notes
+        科研人员备注
         <textarea
           name="userNotes"
           rows={3}
           value={userNotes}
           onChange={(event) => setUserNotes(event.target.value)}
-          placeholder="Anything the AI should preserve as a hard constraint or explicit review note."
+          placeholder="填写 AI 必须保留为硬约束或明确审查备注的内容。"
         />
       </label>
       <label>
-        Optional constraints JSON
+        可选约束 JSON
         <textarea
           rows={8}
           value={constraints}
@@ -133,7 +133,7 @@ export function SessionCreateForm() {
 
       <div className="inline-actions">
         <button className="primary-button" type="submit" disabled={pending}>
-          {pending ? "Creating..." : "Open studio session"}
+          {pending ? "创建中..." : "打开工作室会话"}
         </button>
         {message ? <p className="inline-message error-text">{message}</p> : null}
       </div>

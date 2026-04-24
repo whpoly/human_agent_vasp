@@ -6,11 +6,11 @@ import { getConnections, getWorkflowSession } from "@/lib/api";
 export const dynamic = "force-dynamic";
 
 interface SessionPageProps {
-  params: { sessionId: string };
+  params: Promise<{ sessionId: string }>;
 }
 
 export default async function SessionPage({ params }: SessionPageProps) {
-  const { sessionId } = params;
+  const { sessionId } = await params;
 
   try {
     const [session, connections] = await Promise.all([

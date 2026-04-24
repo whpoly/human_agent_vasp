@@ -30,7 +30,7 @@ async function loadDashboard(): Promise<{
     knowledgeEntries: knowledgeResult.status === "fulfilled" ? knowledgeResult.value : [],
     warning:
       warnings.length > 0
-        ? `Partial backend data unavailable: ${warnings.join(" | ")}`
+        ? `部分后端数据暂不可用：${warnings.join(" | ")}`
         : null
   };
 }

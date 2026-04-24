@@ -10,11 +10,11 @@ export default async function ConnectionsPage() {
     <div className="content-stack">
       <section className="hero compact-hero">
         <div>
-          <p className="eyebrow">DFT backend bridge</p>
-          <h1>Store compute-host metadata, test connectivity, and prepare real execution routes.</h1>
+          <p className="eyebrow">DFT 后端桥接</p>
+          <h1>保存计算主机元数据、测试连接，并准备真实执行路径。</h1>
           <p className="lede">
-            This page is the connector layer for the studio: keep SSH targets, scheduler defaults,
-            and working directories in one place so reviewed DFT jobs can be routed cleanly later.
+            这里是工作室的连接层：集中管理 SSH 目标、调度器默认值和工作目录，让审查后的
+            DFT 作业可以清晰地路由到后端。
           </p>
         </div>
       </section>

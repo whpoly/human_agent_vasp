@@ -101,8 +101,8 @@ class RecommendationEngine:
         stage = get_stage_definition(step.stage_key)
         step.status = "recommended"
         step.recommendation_summary = (
-            f"Recommended {len(generated)} parameters for {stage.name if stage else step.stage_name} "
-            f"using workflow context and {len(similar_cases)} validated reference cases."
+            f"已为{stage.name if stage else step.stage_name}推荐 {len(generated)} 个参数，"
+            f"参考了工作流上下文和 {len(similar_cases)} 个已验证案例。"
         )
         step.warnings = [item.uncertainty_note for item in generated if item.uncertainty_note]
         step.context_snapshot = self._build_context_snapshot(session, request, similar_cases)
@@ -266,23 +266,23 @@ class RecommendationEngine:
             return [
                 GeneratedParameter(
                     name="system_type",
-                    value=session.material_system or "unspecified crystal system",
-                    category="context",
-                    rationale="Capturing the material family early helps the agent choose conservative VASP defaults later.",
+                    value=session.material_system or "未指定晶体体系",
+                    category="上下文",
+                    rationale="尽早记录材料族有助于智能体在后续选择更保守的 VASP 默认值。",
                     source_metadata={"references": references},
                 ),
                 GeneratedParameter(
                     name="calculation_goal",
                     value=session.goal,
-                    category="context",
-                    rationale="The user goal is preserved as an explicit workflow parameter for downstream recommendation prompts and auditability.",
+                    category="上下文",
+                    rationale="用户目标会作为显式工作流参数保留，便于后续推荐提示和审计追踪。",
                     source_metadata={"references": references},
                 ),
                 GeneratedParameter(
                     name="calculation_type",
                     value=session.calculation_type,
-                    category="context",
-                    rationale="Different workflows such as relaxation, static, or DOS need different convergence and smearing choices.",
+                    category="上下文",
+                    rationale="弛豫、静态计算或 DOS 等不同工作流需要不同的收敛与展宽选择。",
                     source_metadata={"references": references},
                 ),
             ]
@@ -291,17 +291,17 @@ class RecommendationEngine:
             return [
                 GeneratedParameter(
                     name="poscar_status",
-                    value="needs_human_review",
-                    category="validation",
-                    rationale="POSCAR parsing should remain a human-reviewed checkpoint because ordering, selective dynamics, and magnetism can be subtle.",
-                    uncertainty_note="This system does not infer missing atomic positions; an expert should confirm the uploaded structure.",
+                    value="需要人工审查",
+                    category="验证",
+                    rationale="POSCAR 解析应保留人工审查关口，因为元素顺序、选择性动力学和磁性设置都可能很微妙。",
+                    uncertainty_note="当前系统不会推断缺失的原子位置；专家应确认上传结构。",
                     source_metadata={"references": references},
                 ),
                 GeneratedParameter(
                     name="symmetry_notes",
-                    value="verify symmetry reduction before dense k-point generation",
-                    category="validation",
-                    rationale="Unexpected symmetry breaking can change the required k-point density and relaxation path.",
+                    value="生成密集 k 点前先确认对称性约化",
+                    category="验证",
+                    rationale="意外的对称性破缺可能改变所需 k 点密度和弛豫路径。",
                     source_metadata={"references": references},
                 ),
             ]
@@ -322,22 +322,22 @@ class RecommendationEngine:
                     GeneratedParameter(
                         name="mesh_strategy",
                         value="gamma-centered" if "surface" in material or "2d" in material else "Monkhorst-Pack",
-                        category="sampling",
-                        rationale="Mesh centering depends on dimensionality and symmetry expectations.",
+                        category="采样",
+                        rationale="网格中心选择取决于维度和预期对称性。",
                         source_metadata={"references": references},
                     ),
                     GeneratedParameter(
                         name="kpoint_density",
                         value=mesh,
-                        category="sampling",
-                        rationale="A stage-specific k-point density is recommended so users can audit Brillouin-zone sampling independently from INCAR settings.",
+                        category="采样",
+                        rationale="建议为该阶段单独记录 k 点密度，便于用户独立审查布里渊区采样，而不与 INCAR 设置混在一起。",
                         source_metadata={"references": references},
                     ),
                     GeneratedParameter(
                         name="gamma_centered",
                         value=True if "surface" in material or "2d" in material else False,
-                        category="sampling",
-                        rationale="Gamma-centered meshes are common for slabs and low-dimensional systems to avoid awkward symmetry reduction.",
+                        category="采样",
+                        rationale="对于 slab 和低维体系，Gamma 中心网格常用于避免不合适的对称性约化。",
                         source_metadata={"references": references},
                     ),
                 ],
@@ -345,21 +345,21 @@ class RecommendationEngine:
             )
 
         if stage_key == "potcar-guidance":
-            species = constraints.get("species") or session.material_system or "Confirm species list"
+            species = constraints.get("species") or session.material_system or "请确认元素列表"
             return [
                 GeneratedParameter(
                     name="potcar_symbols",
                     value=species,
-                    category="pseudopotential",
-                    rationale="The pseudopotential stack must match the final POSCAR species order and should remain human-confirmed.",
-                    uncertainty_note="This MVP provides guidance only; it does not assemble POTCAR binaries automatically.",
+                    category="赝势",
+                    rationale="赝势顺序必须匹配最终 POSCAR 的元素顺序，并应保留人工确认。",
+                    uncertainty_note="当前 MVP 仅提供指引，不会自动组装 POTCAR 二进制文件。",
                     source_metadata={"references": references},
                 ),
                 GeneratedParameter(
                     name="recommended_dataset",
                     value="PAW_PBE",
-                    category="pseudopotential",
-                    rationale="PAW_PBE is a common baseline for production VASP workflows unless the project requires another validated dataset family.",
+                    category="赝势",
+                    rationale="除非项目要求使用其他已验证数据集族，PAW_PBE 通常是生产级 VASP 工作流的常用基线。",
                     source_metadata={"references": references},
                 ),
             ]
@@ -371,29 +371,29 @@ class RecommendationEngine:
                     GeneratedParameter(
                         name="queue",
                         value="debug" if scheduler_type != "direct" else "interactive",
-                        category="execution",
-                        rationale="The MVP stores scheduler hints explicitly so users can compare agent suggestions with their actual HPC policy.",
+                        category="执行",
+                        rationale="MVP 会显式保存调度器提示，便于用户将智能体建议与实际 HPC 策略对比。",
                         source_metadata={"references": references},
                     ),
                     GeneratedParameter(
                         name="ntasks",
                         value=constraints.get("ntasks", 32),
-                        category="execution",
-                        rationale="A modest default parallel size keeps the generated job script usable while remaining easy to edit.",
+                        category="执行",
+                        rationale="适中的默认并行规模可让生成的作业脚本可用，同时保持易于编辑。",
                         source_metadata={"references": references},
                     ),
                     GeneratedParameter(
                         name="walltime",
                         value=constraints.get("walltime", "04:00:00"),
-                        category="execution",
-                        rationale="The walltime suggestion is conservative and should be tuned by the scientist before submission.",
+                        category="执行",
+                        rationale="墙时建议偏保守，提交前应由科研人员根据体系和机器情况调整。",
                         source_metadata={"references": references},
                     ),
                     GeneratedParameter(
                         name="launch_command",
                         value=constraints.get("launch_command", "vasp_std"),
-                        category="execution",
-                        rationale="The launch command stays editable because site-specific VASP binaries and module environments vary significantly.",
+                        category="执行",
+                        rationale="启动命令保持可编辑，因为不同站点的 VASP 二进制和模块环境差异很大。",
                         source_metadata={"references": references},
                     ),
                 ],
@@ -404,16 +404,16 @@ class RecommendationEngine:
             return [
                 GeneratedParameter(
                     name="convergence_status",
-                    value="pending_review",
-                    category="review",
-                    rationale="The agent should not declare convergence without explicit user confirmation from the retrieved outputs.",
+                    value="等待审查",
+                    category="审查",
+                    rationale="在用户基于输出显式确认前，智能体不应自行宣称已收敛。",
                     source_metadata={"references": references},
                 ),
                 GeneratedParameter(
                     name="next_action",
-                    value="inspect OUTCAR and OSZICAR, then mark validated if acceptable",
-                    category="review",
-                    rationale="The MVP emphasizes reviewable next actions rather than autonomous scientific decisions.",
+                    value="检查 OUTCAR 和 OSZICAR；若可接受，再标记为已验证",
+                    category="审查",
+                    rationale="MVP 强调可审查的下一步行动，而不是自主做出科学结论。",
                     source_metadata={"references": references},
                 ),
             ]
@@ -423,9 +423,9 @@ class RecommendationEngine:
             GeneratedParameter(
                 name="manual_review",
                 value=True,
-                category="fallback",
-                rationale=f"No specialized heuristics are configured for {stage.name if stage else stage_key}, so the system is defaulting to explicit human review.",
-                uncertainty_note="Add a domain-specific recommender for this stage before relying on it in production.",
+                category="兜底",
+                rationale=f"尚未为{stage.name if stage else stage_key}配置专用启发式规则，因此系统默认进入显式人工审查。",
+                uncertainty_note="在生产环境依赖该阶段前，应补充领域专用推荐器。",
                 source_metadata={"references": references},
             )
         ]
@@ -447,52 +447,52 @@ class RecommendationEngine:
             GeneratedParameter(
                 name="ENCUT",
                 value=max(520, int(constraints.get("minimum_encut", 520))),
-                category="accuracy",
-                rationale="A 520 eV cutoff is a conservative production default for PAW datasets and reduces transferability risk across structures.",
+                category="精度",
+                rationale="520 eV 截断能是 PAW 数据集的保守生产默认值，可降低跨结构迁移风险。",
                 source_metadata={"references": references},
             ),
             GeneratedParameter(
                 name="PREC",
                 value="Accurate",
-                category="accuracy",
-                rationale="Accurate precision reduces Pulay stress and is a safe default for recommendation-driven workflows.",
+                category="精度",
+                rationale="PREC=Accurate 可降低 Pulay 应力，是推荐驱动工作流中的稳妥默认值。",
                 source_metadata={"references": references},
             ),
             GeneratedParameter(
                 name="EDIFF",
                 value=1e-6 if calc in {"static", "dos", "band structure"} else 1e-5,
-                category="convergence",
-                rationale="Electronic convergence is tightened for post-processing calculations to improve total energy and density of states quality.",
+                category="收敛",
+                rationale="后处理计算会收紧电子收敛，以提升总能和态密度质量。",
                 source_metadata={"references": references},
             ),
             GeneratedParameter(
                 name="ISMEAR",
                 value=1 if is_metal else 0,
-                category="electronic",
-                rationale="The smearing strategy follows whether the system is metallic-like or requires a more cautious Gaussian treatment.",
-                uncertainty_note=None if is_metal else "Insulating systems used for DOS or band structure may need ISMEAR=-5 after relaxation.",
+                category="电子",
+                rationale="展宽策略取决于体系是否表现为金属性，或是否需要更谨慎的高斯处理。",
+                uncertainty_note=None if is_metal else "用于 DOS 或能带的绝缘体系在弛豫后可能需要 ISMEAR=-5。",
                 source_metadata={"references": references},
             ),
             GeneratedParameter(
                 name="SIGMA",
                 value=0.2 if is_metal else 0.05,
-                category="electronic",
-                rationale="SIGMA is paired with the smearing choice to balance stability and minimal free-energy distortion.",
+                category="电子",
+                rationale="SIGMA 与展宽方式配套，用于平衡稳定性和较小的自由能扰动。",
                 source_metadata={"references": references},
             ),
             GeneratedParameter(
                 name="ALGO",
                 value="Normal",
-                category="electronic",
-                rationale="ALGO=Normal is usually the safest production choice unless there is a documented need for a faster or more robust solver.",
+                category="电子",
+                rationale="除非已有文档说明需要更快或更稳健的求解器，ALGO=Normal 通常是最稳妥的生产选择。",
                 source_metadata={"references": references},
             ),
             GeneratedParameter(
                 name="ISPIN",
                 value=2 if is_magnetic else 1,
-                category="magnetism",
-                rationale="Spin polarization is enabled when the material description hints at transition-metal or magnetic behavior.",
-                uncertainty_note="Initial magnetic moments are not inferred in this MVP; review MAGMOM manually for open-shell systems."
+                category="磁性",
+                rationale="当材料描述暗示过渡金属或磁性行为时，启用自旋极化。",
+                uncertainty_note="当前 MVP 不推断初始磁矩；开壳层体系请手动审查 MAGMOM。"
                 if is_magnetic
                 else None,
                 source_metadata={"references": references},
@@ -504,30 +504,30 @@ class RecommendationEngine:
                     GeneratedParameter(
                         name="IBRION",
                         value=2,
-                        category="ionic",
-                        rationale="Conjugate-gradient ionic updates are a stable first choice for routine structural relaxations.",
+                        category="离子",
+                        rationale="共轭梯度离子更新是常规结构弛豫的稳定首选。",
                         source_metadata={"references": references},
                     ),
                     GeneratedParameter(
                         name="NSW",
                         value=120,
-                        category="ionic",
-                        rationale="A moderate ionic step budget prevents premature termination on larger cells while staying reviewable.",
+                        category="离子",
+                        rationale="适中的离子步数预算可避免较大晶胞过早终止，同时保持结果可审查。",
                         source_metadata={"references": references},
                     ),
                     GeneratedParameter(
                         name="ISIF",
                         value=3,
-                        category="ionic",
-                        rationale="ISIF=3 permits simultaneous ionic and cell relaxation for a general geometry optimization.",
-                        uncertainty_note="If the lattice should remain fixed, change ISIF before approval.",
+                        category="离子",
+                        rationale="ISIF=3 允许离子和晶胞同时弛豫，适合一般几何优化。",
+                        uncertainty_note="如果晶格应保持固定，请在批准前修改 ISIF。",
                         source_metadata={"references": references},
                     ),
                     GeneratedParameter(
                         name="EDIFFG",
                         value=-0.02,
-                        category="ionic",
-                        rationale="A force-based stopping criterion of -0.02 eV/Ang is a pragmatic production default for relaxation workflows.",
+                        category="离子",
+                        rationale="-0.02 eV/Ang 的力收敛停止准则是弛豫工作流中务实的生产默认值。",
                         source_metadata={"references": references},
                     ),
                 ]
@@ -537,9 +537,9 @@ class RecommendationEngine:
                 GeneratedParameter(
                     name="LDAU",
                     value={"enabled": True, "review_required": True},
-                    category="correlation",
-                    rationale="Transition-metal and oxide systems often require DFT+U review, but the exact U values must remain explicitly human-approved.",
-                    uncertainty_note="Confirm oxidation states and U/J references before enabling DFT+U in production.",
+                    category="关联",
+                    rationale="过渡金属和氧化物体系通常需要 DFT+U 审查，但具体 U 值必须由人工明确批准。",
+                    uncertainty_note="在生产环境启用 DFT+U 前，请确认氧化态和 U/J 参考来源。",
                     source_metadata={"references": references},
                 )
             )
@@ -555,5 +555,5 @@ class RecommendationEngine:
         for parameter in parameters:
             if parameter.name in draft_parameters:
                 parameter.value = draft_parameters[parameter.name]
-                parameter.rationale += " The current draft override was preserved to support iterative refinement."
+                parameter.rationale += " 已保留当前草稿覆盖值，以支持迭代优化。"
         return parameters

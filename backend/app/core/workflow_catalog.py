@@ -14,20 +14,20 @@ class WorkflowStageDefinition:
 DEFAULT_WORKFLOW_STAGES: list[WorkflowStageDefinition] = [
     WorkflowStageDefinition(
         key="structure-prep",
-        name="Structure Preparation",
-        description="Capture the initial structure, composition, and calculation intent.",
+        name="结构准备",
+        description="记录初始结构、组成和计算意图。",
         parameter_hints=["system_type", "material_class", "structure_notes"],
     ),
     WorkflowStageDefinition(
         key="poscar-validation",
-        name="POSCAR Validation",
-        description="Review lattice vectors, species ordering, and atom counts before execution.",
+        name="POSCAR 验证",
+        description="执行前审查晶格矢量、元素顺序和原子数量。",
         parameter_hints=["poscar_status", "symmetry_notes", "magnetic_sites"],
     ),
     WorkflowStageDefinition(
         key="incar-recommendation",
-        name="INCAR Recommendation",
-        description="Recommend calculation controls, convergence thresholds, and ionic relaxation tags.",
+        name="INCAR 推荐",
+        description="推荐计算控制参数、收敛阈值和离子弛豫标签。",
         parameter_hints=[
             "ENCUT",
             "EDIFF",
@@ -45,26 +45,26 @@ DEFAULT_WORKFLOW_STAGES: list[WorkflowStageDefinition] = [
     ),
     WorkflowStageDefinition(
         key="kpoints-configuration",
-        name="KPOINTS Configuration",
-        description="Recommend k-point density, mesh style, and symmetry-aware settings.",
+        name="KPOINTS 配置",
+        description="推荐 k 点密度、网格类型和对称性感知设置。",
         parameter_hints=["mesh_strategy", "kpoint_density", "gamma_centered"],
     ),
     WorkflowStageDefinition(
         key="potcar-guidance",
-        name="POTCAR Guidance",
-        description="Suggest POTCAR family choices and flag cases needing expert confirmation.",
+        name="POTCAR 指引",
+        description="建议 POTCAR 数据集选择，并标记需要专家确认的情况。",
         parameter_hints=["potcar_symbols", "recommended_dataset", "semicore_warning"],
     ),
     WorkflowStageDefinition(
         key="submission-prep",
-        name="Submission Preparation",
-        description="Package approved inputs, scheduler instructions, and remote execution settings.",
+        name="提交准备",
+        description="打包已批准输入、调度器指令和远程执行设置。",
         parameter_hints=["queue", "nodes", "ntasks", "walltime", "launch_command"],
     ),
     WorkflowStageDefinition(
         key="result-review",
-        name="Result Review",
-        description="Summarize outputs, convergence observations, and validation notes.",
+        name="结果审查",
+        description="总结输出、收敛观察和验证备注。",
         parameter_hints=["convergence_status", "next_action", "validation_note"],
     ),
 ]

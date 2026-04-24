@@ -4,6 +4,7 @@ import { startTransition, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 
 import { createConnection, testConnection } from "@/lib/api";
+import { formatSchedulerType } from "@/lib/studio";
 import type { SSHConnectionProfile } from "@/lib/types";
 
 interface ConnectionFormProps {
@@ -36,25 +37,25 @@ export function ConnectionForm({ initialConnections }: ConnectionFormProps) {
       });
       setConnections((current) => [connection, ...current]);
       setLatestId(connection.id);
-      setMessage("Connection profile saved.");
+      setMessage("连接配置已保存。");
       startTransition(() => {
         router.refresh();
       });
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to save connection.");
+      setMessage(error instanceof Error ? error.message : "无法保存连接配置。");
     }
   }
 
   async function handleTest() {
     if (!latestId) {
-      setTestResult("Create or select a connection profile first.");
+      setTestResult("请先创建或选择一个连接配置。");
       return;
     }
     try {
       const result = await testConnection(latestId, {});
-      setTestResult(result.ok ? `Connected: ${result.message}` : `Connection failed: ${result.message}`);
+      setTestResult(result.ok ? `已连接：${result.message}` : `连接失败：${result.message}`);
     } catch (error) {
-      setTestResult(error instanceof Error ? error.message : "Connection test failed.");
+      setTestResult(error instanceof Error ? error.message : "连接测试失败。");
     }
   }
 
@@ -63,65 +64,65 @@ export function ConnectionForm({ initialConnections }: ConnectionFormProps) {
       <form className="panel form-grid" onSubmit={handleCreate}>
         <div className="panel-header">
           <div>
-            <p className="eyebrow">Compute connector</p>
-            <h2>DFT backend connection settings</h2>
+            <p className="eyebrow">计算连接器</p>
+            <h2>DFT 后端连接设置</h2>
           </div>
           <button className="secondary-button" type="button" onClick={handleTest}>
-            Test latest profile
+            测试最新配置
           </button>
         </div>
 
         <label>
-          Profile name
-          <input name="name" defaultValue="Primary VASP cluster" required />
+          配置名称
+          <input name="name" defaultValue="主 VASP 集群" required />
         </label>
         <label>
-          Host / IP
+          主机 / IP
           <input name="host" defaultValue="192.168.1.10" required />
         </label>
         <label>
-          Port
+          端口
           <input name="port" defaultValue="22" required />
         </label>
         <label>
-          Username
+          用户名
           <input name="username" defaultValue="vaspuser" required />
         </label>
         <label>
-          Authentication
+          认证方式
           <select name="authMethod" defaultValue="password">
-            <option value="password">Password</option>
-            <option value="ssh_key">SSH key reference</option>
+            <option value="password">密码</option>
+            <option value="ssh_key">SSH 密钥引用</option>
           </select>
         </label>
         <label>
-          Password placeholder
-          <input name="password" type="password" placeholder="Stored encrypted if provided" />
+          密码占位
+          <input name="password" type="password" placeholder="如提供，将加密保存" />
         </label>
         <label>
-          SSH key reference
+          SSH 密钥引用
           <input name="sshKeyPath" placeholder="~/.ssh/id_rsa" />
         </label>
         <label>
-          Remote working directory
+          远程工作目录
           <input name="remoteWorkdir" defaultValue="/scratch/vasp-agent" required />
         </label>
         <label>
-          Execution mode
+          执行模式
           <select name="schedulerType" defaultValue="slurm">
-            <option value="direct">Direct shell</option>
+            <option value="direct">直接 shell</option>
             <option value="slurm">SLURM</option>
             <option value="pbs">PBS</option>
           </select>
         </label>
         <label>
-          Submit command override
-          <input name="schedulerSubmitCommand" placeholder="Optional, for example sbatch run_job.sh" />
+          提交命令覆盖
+          <input name="schedulerSubmitCommand" placeholder="可选，例如 sbatch run_job.sh" />
         </label>
 
         <div className="inline-actions">
           <button className="primary-button" type="submit">
-            Save connection
+            保存连接
           </button>
           {message ? <p className="inline-message">{message}</p> : null}
           {testResult ? <p className="inline-message">{testResult}</p> : null}
@@ -131,12 +132,12 @@ export function ConnectionForm({ initialConnections }: ConnectionFormProps) {
       <div className="panel">
         <div className="panel-header">
           <div>
-            <p className="eyebrow">Profiles</p>
-            <h2>Saved compute targets</h2>
+            <p className="eyebrow">配置</p>
+            <h2>已保存计算目标</h2>
           </div>
         </div>
         <div className="stack-list">
-          {connections.length === 0 ? <p className="muted-text">No connection profiles yet.</p> : null}
+          {connections.length === 0 ? <p className="muted-text">还没有连接配置。</p> : null}
           {connections.map((connection) => (
             <button
               className={`connection-card ${latestId === connection.id ? "selected-card" : ""}`}
@@ -148,7 +149,7 @@ export function ConnectionForm({ initialConnections }: ConnectionFormProps) {
               <span>
                 {connection.username}@{connection.host}:{connection.port}
               </span>
-              <span>{connection.scheduler_type}</span>
+              <span>{formatSchedulerType(connection.scheduler_type)}</span>
             </button>
           ))}
         </div>
