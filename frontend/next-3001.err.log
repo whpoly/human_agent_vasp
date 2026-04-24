@@ -1,0 +1,25 @@
+ ⨯ ./components/materials-studio.tsx
+Module parse failed: Identifier 'frame' has already been declared (1526:20)
+|                 resizeObserver.observe(parent);
+|                 resizeCanvas();
+>                 let frame = 0;
+|                 const render = {
+|                     "MaterialViewer.useEffect.mountViewer.render": ()=>{
+
+Import trace for requested module:
+./components/materials-studio.tsx
+ ⨯ Error: ENOENT: no such file or directory, open 'C:\Users\User\Desktop\human_agent_vasp\frontend\.next\server\vendor-chunks\next.js'
+    at __webpack_require__.f.require (C:\Users\User\Desktop\human_agent_vasp\frontend\.next\server\webpack-runtime.js:198:28)
+    at <unknown> (C:\Users\User\Desktop\human_agent_vasp\frontend\.next\server\webpack-runtime.js:111:40)
+    at Array.reduce (<anonymous>)
+    at __webpack_require__.e (C:\Users\User\Desktop\human_agent_vasp\frontend\.next\server\webpack-runtime.js:110:67)
+    at Array.map (<anonymous>)
+    at __webpack_require__.X (C:\Users\User\Desktop\human_agent_vasp\frontend\.next\server\webpack-runtime.js:162:22)
+    at <unknown> (C:\Users\User\Desktop\human_agent_vasp\frontend\.next\server\app\page.js:280:47)
+    at Object.<anonymous> (C:\Users\User\Desktop\human_agent_vasp\frontend\.next\server\app\page.js:283:3) {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\User\\Desktop\\human_agent_vasp\\frontend\\.next\\server\\vendor-chunks\\next.js',
+  page: '/'
+}

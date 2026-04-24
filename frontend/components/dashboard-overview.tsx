@@ -1,6 +1,7 @@
 import Link from "next/link";
-import { ArrowRight, Cpu, Database, ListChecks, Settings } from "lucide-react";
+import { ArrowRight, Boxes, Cpu, Database, ListChecks, Settings } from "lucide-react";
 
+import { AiConfigPanel } from "@/components/ai-config-panel";
 import { STAGE_BLUEPRINTS } from "@/lib/studio";
 import type { KnowledgeEntry, SSHConnectionProfile, WorkflowSession } from "@/lib/types";
 
@@ -58,6 +59,10 @@ export function DashboardOverview({
             工具完成或报错后回到上一级流程，最后只保留一次提交动作。
           </p>
           <div className="hero-actions">
+            <Link className="primary-button icon-button-label" href="/materials">
+              打开材料准备
+              <ArrowRight size={16} />
+            </Link>
             <Link className="primary-button icon-button-label" href="/sessions">
               打开工作条目
               <ArrowRight size={16} />
@@ -89,6 +94,26 @@ export function DashboardOverview({
       </section>
 
       {warning ? <p className="panel warning-text">{warning}</p> : null}
+
+      <section className="content-grid">
+        <article className="panel form-grid">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">第一步</p>
+              <h2>材料准备工作台</h2>
+            </div>
+            <Boxes size={26} />
+          </div>
+          <p className="support-text">
+            上传 POSCAR 或 CIF 后进入三维结构视图，可执行扩胞、真空层、平移、居中、撤销和导出。
+          </p>
+          <Link className="secondary-link icon-button-label align-start" href="/materials">
+            进入材料准备
+            <ArrowRight size={16} />
+          </Link>
+        </article>
+        <AiConfigPanel />
+      </section>
 
       <section className="process-overview-grid">
         {FLOW_GROUPS.map((group, index) => {

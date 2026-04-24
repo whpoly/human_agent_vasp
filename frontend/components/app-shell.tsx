@@ -13,6 +13,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
         <nav className="nav-links">
           <Link href="/">流程首页</Link>
+          <Link href="/materials">材料准备</Link>
           <Link href="/sessions">工作条目</Link>
           <Link href="/connections">计算配置</Link>
         </nav>

@@ -1,0 +1,28 @@
+
+> vasp-hitl-agent-frontend@0.1.0 dev
+> next dev --hostname 127.0.0.1 --port 3001
+
+   ▲ Next.js 15.3.0
+   - Local:        http://127.0.0.1:3001
+   - Network:      http://127.0.0.1:3001
+   - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 1287ms
+ ○ Compiling /materials ...
+ ✓ Compiled /materials in 1027ms (779 modules)
+ GET /materials 200 in 1283ms
+ GET /materials 200 in 77ms
+ GET /materials 200 in 69ms
+ ✓ Compiled in 347ms (779 modules)
+ GET /materials 200 in 109ms
+ ○ Compiling / ...
+ ✓ Compiled / in 511ms (807 modules)
+ ○ Compiling /_error ...
+ ✓ Compiled /_error in 1090ms (1141 modules)
+ GET /materials 200 in 455ms
+ GET /materials 200 in 13ms
+ GET / 500 in 2142ms
+ ✓ Compiled /_not-found in 303ms (1145 modules)
+ GET /_next/static/css/app/layout.css?v=1777019022877 404 in 422ms
+[?25h

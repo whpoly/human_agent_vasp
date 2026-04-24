@@ -1,0 +1,10 @@
+
+> vasp-hitl-agent-frontend@0.1.0 start
+> next start --hostname 127.0.0.1 --port 3002
+
+   ▲ Next.js 15.3.0
+   - Local:        http://127.0.0.1:3002
+   - Network:      http://127.0.0.1:3002
+
+ ✓ Starting...
+ ✓ Ready in 451ms

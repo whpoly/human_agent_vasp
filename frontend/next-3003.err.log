@@ -1,0 +1,9 @@
+ ⨯ [Error: Cannot find module 'C:\Users\User\Desktop\human_agent_vasp\frontend\.next\server\middleware-manifest.json'
+Require stack:
+- C:\Users\User\Desktop\human_agent_vasp\frontend\node_modules\next\dist\server\next-server.js
+- C:\Users\User\Desktop\human_agent_vasp\frontend\node_modules\next\dist\server\dev\next-dev-server.js
+- C:\Users\User\Desktop\human_agent_vasp\frontend\node_modules\next\dist\server\next.js
+- C:\Users\User\Desktop\human_agent_vasp\frontend\node_modules\next\dist\server\lib\start-server.js] {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [Array]
+}
