@@ -8,6 +8,7 @@ import {
   useMemo,
   useState,
   type ChangeEvent,
+  type FormEvent,
 } from "react";
 import {
   AlertTriangle,
@@ -29,6 +30,7 @@ import { StatusPill } from "@/components/status-pill";
 import {
   approveStep,
   createChatMessage,
+  createConnection,
   generateRecommendations,
   getChatMessages,
   getExecutions,
@@ -71,6 +73,28 @@ interface WorkflowTool {
 type ToolResult = "done" | "reported";
 
 const DONE_STATUSES = new Set(["approved", "completed", "validated"]);
+const PARAMETER_STAGE_KEYS = new Set([
+  "parameter-confirmation",
+  "incar-recommendation",
+  "kpoints-configuration",
+  "potcar-guidance",
+]);
+const CALCULATION_STAGE_KEYS = new Set(["calculation-submit", "submission-prep"]);
+const RESULT_STAGE_KEYS = new Set(["result-archive", "result-review"]);
+const NON_INCAR_PARAMETER_KEYS = new Set([
+  "mesh_strategy",
+  "kpoint_density",
+  "gamma_centered",
+  "potcar_symbols",
+  "recommended_dataset",
+]);
+
+interface VaspInputPreview {
+  incar: string;
+  kpoints: string;
+  potcarGuidance: string;
+  poscar: string;
+}
 
 const STATUS_LABELS: Record<string, string> = {
   pending: "待处理",
@@ -352,6 +376,73 @@ function parseEditorValue(value: string): JsonValue {
   }
 }
 
+function toVaspValue(value: JsonValue): string {
+  if (typeof value === "boolean") {
+    return value ? ".TRUE." : ".FALSE.";
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => toVaspValue(item)).join(" ");
+  }
+  if (value && typeof value === "object") {
+    return JSON.stringify(value);
+  }
+  return String(value ?? "");
+}
+
+function previewParameterValues(
+  step: WorkflowStep | undefined,
+  draftValues: Record<string, string>
+): Record<string, JsonValue> {
+  if (!step) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    step.parameters.map((parameter) => [
+      parameter.name,
+      parseEditorValue(
+        draftValues[parameter.name] ??
+          serializeValue(parameter.approved_value ?? parameter.edited_value ?? parameter.suggested_value)
+      ),
+    ])
+  );
+}
+
+function buildVaspInputPreview(
+  step: WorkflowStep | undefined,
+  draftValues: Record<string, string>,
+  poscarText: string
+): VaspInputPreview {
+  const values = previewParameterValues(step, draftValues);
+  const incarLines = Object.entries(values)
+    .filter(([key, value]) => !NON_INCAR_PARAMETER_KEYS.has(key) && value !== null && value !== "")
+    .map(([key, value]) => `${key} = ${toVaspValue(value)}`);
+  const meshStrategy = String(values.mesh_strategy ?? "");
+  const gammaCentered = values.gamma_centered === true || /gamma/i.test(meshStrategy);
+  const kpointDensity = String(values.kpoint_density || "6x6x6")
+    .replace(/[x,，,]/gi, " ")
+    .trim();
+  const potcarSymbols = values.potcar_symbols ?? "请从最终 POSCAR 元素行确认";
+  const recommendedDataset = values.recommended_dataset ?? "PAW_PBE";
+
+  return {
+    incar: incarLines.join("\n") || "# 等待生成并确认 INCAR 参数。",
+    kpoints: [
+      "Automatic mesh",
+      "0",
+      gammaCentered ? "Gamma" : "Monkhorst-Pack",
+      kpointDensity || "6 6 6",
+      "0 0 0",
+    ].join("\n"),
+    potcarGuidance: [
+      "# POTCAR guidance only",
+      `recommended_dataset = ${toVaspValue(recommendedDataset)}`,
+      `potcar_symbols = ${toVaspValue(potcarSymbols)}`,
+    ].join("\n"),
+    poscar: poscarText.trim() || "POSCAR content must be provided before execution.",
+  };
+}
+
 function buildDraftMap(step: WorkflowStep | undefined): Record<string, string> {
   if (!step) {
     return {};
@@ -381,6 +472,27 @@ function buildDraftPayload(
       ),
     ])
   );
+}
+
+function buildStepApprovalParameters(
+  step: WorkflowStep,
+  draftValues: Record<string, string>
+): {
+  name: string;
+  edited_value: JsonValue;
+  approved_value: JsonValue;
+}[] {
+  return step.parameters.map((parameter: StepParameter) => {
+    const approvedValue = parseEditorValue(draftValues[parameter.name] ?? "");
+    return {
+      name: parameter.name,
+      edited_value:
+        serializeValue(parameter.suggested_value) === serializeValue(approvedValue)
+          ? null
+          : approvedValue,
+      approved_value: approvedValue,
+    };
+  });
 }
 
 function updateStep(session: WorkflowSession, nextStep: WorkflowStep): WorkflowSession {
@@ -516,6 +628,8 @@ export function WorkflowWizard({ initialSession, connections }: WorkflowWizardPr
   const [knowledgeNote, setKnowledgeNote] = useState<string | null>(null);
   const [knowledgeRefreshTick, setKnowledgeRefreshTick] = useState(0);
 
+  const [connectionProfiles, setConnectionProfiles] = useState(connections);
+  const [connectionFormOpen, setConnectionFormOpen] = useState(connections.length === 0);
   const [selectedConnectionId, setSelectedConnectionId] = useState(
     initialSession.connection_profile_id ?? connections[0]?.id ?? ""
   );
@@ -545,8 +659,8 @@ export function WorkflowWizard({ initialSession, connections }: WorkflowWizardPr
     [deferredPoscarText]
   );
   const selectedConnection = useMemo(
-    () => connections.find((connection) => connection.id === selectedConnectionId) ?? null,
-    [connections, selectedConnectionId]
+    () => connectionProfiles.find((connection) => connection.id === selectedConnectionId) ?? null,
+    [connectionProfiles, selectedConnectionId]
   );
   const blueprint = useMemo(() => getStageBlueprint(activeStageKey), [activeStageKey]);
   const activeTools = useMemo(() => getToolsForStage(activeStageKey), [activeStageKey]);
@@ -556,15 +670,23 @@ export function WorkflowWizard({ initialSession, connections }: WorkflowWizardPr
     }
     return getToolsForStage(openTool.stageKey).find((tool) => tool.id === openTool.toolId) ?? null;
   }, [openTool]);
-  const finalReady = orderedSteps.length > 0 && orderedSteps.every((step) => isStepComplete(step));
-  const isParameterStage = [
-    "parameter-confirmation",
-    "incar-recommendation",
-    "kpoints-configuration",
-    "potcar-guidance",
-  ].includes(activeStageKey);
-  const isCalculationStage = ["calculation-submit", "submission-prep"].includes(activeStageKey);
-  const isResultStage = ["result-archive", "result-review"].includes(activeStageKey);
+  const isMaterialStage = activeStageKey === "materials-prep" || activeStageKey === "structure-prep";
+  const isParameterStage = PARAMETER_STAGE_KEYS.has(activeStageKey);
+  const isCalculationStage = CALCULATION_STAGE_KEYS.has(activeStageKey);
+  const isResultStage = RESULT_STAGE_KEYS.has(activeStageKey);
+  const parameterStep = useMemo(
+    () => orderedSteps.find((step) => PARAMETER_STAGE_KEYS.has(step.stage_key)),
+    [orderedSteps]
+  );
+  const latestExecution = executions[0] ?? null;
+  const inputPreview = useMemo(
+    () => buildVaspInputPreview(currentStep, draftValues, deferredPoscarText),
+    [currentStep, deferredPoscarText, draftValues]
+  );
+  const archivedInputPreview = useMemo(
+    () => buildVaspInputPreview(parameterStep, {}, session.structure_text ?? deferredPoscarText),
+    [parameterStep, session.structure_text, deferredPoscarText]
+  );
 
   useEffect(() => {
     setDraftValues(buildDraftMap(currentStep));
@@ -733,6 +855,23 @@ export function WorkflowWizard({ initialSession, connections }: WorkflowWizardPr
     }
   }
 
+  async function approveWorkflowStep(step: WorkflowStep, note: string | null) {
+    const nextStep = await approveStep(session.id, step.id, {
+      parameters: buildStepApprovalParameters(step, draftValues),
+      note,
+      mark_validated: true,
+    });
+    const canArchiveToKnowledge = RESULT_STAGE_KEYS.has(nextStep.stage_key) && executions.length > 0;
+    const finalizedStep = canArchiveToKnowledge
+      ? await validateStep(session.id, nextStep.id, {
+          validation_note: note || "结果归档确认。",
+          trust_score: 0.8,
+        })
+      : nextStep;
+
+    return { finalizedStep, canArchiveToKnowledge };
+  }
+
   async function handleCompleteCurrentStep() {
     if (!currentStep) {
       return;
@@ -741,28 +880,10 @@ export function WorkflowWizard({ initialSession, connections }: WorkflowWizardPr
     setBusyKey(`approve-${currentStep.stage_key}`);
     setMessage(null);
     try {
-      const nextStep = await approveStep(session.id, currentStep.id, {
-        parameters: currentStep.parameters.map((parameter: StepParameter) => {
-          const approvedValue = parseEditorValue(draftValues[parameter.name] ?? "");
-          return {
-            name: parameter.name,
-            edited_value:
-              serializeValue(parameter.suggested_value) === serializeValue(approvedValue)
-                ? null
-                : approvedValue,
-            approved_value: approvedValue,
-          };
-        }),
-        note: approvalNote || null,
-        mark_validated: true,
-      });
-      const canArchiveToKnowledge = ["result-archive", "result-review"].includes(nextStep.stage_key) && executions.length > 0;
-      const finalizedStep = canArchiveToKnowledge
-        ? await validateStep(session.id, nextStep.id, {
-            validation_note: approvalNote || "结果归档确认。",
-            trust_score: 0.8,
-          })
-        : nextStep;
+      const { finalizedStep, canArchiveToKnowledge } = await approveWorkflowStep(
+        currentStep,
+        approvalNote || null
+      );
       setSession((current) => updateStep(current, finalizedStep));
       setKnowledgeRefreshTick((current) => current + 1);
       await appendChat(
@@ -793,7 +914,120 @@ export function WorkflowWizard({ initialSession, connections }: WorkflowWizardPr
     }
   }
 
+  async function handleConfirmMaterialsPreview() {
+    if (!poscarText.trim()) {
+      setMessage("请先提供 POSCAR 或结构文本，再确认材料准备。");
+      return;
+    }
+
+    setBusyKey("confirm-materials");
+    setMessage(null);
+    const materialsStageKey = currentStep?.stage_key ?? activeStageKey;
+    try {
+      const updated = await updateWorkflowSession(session.id, {
+        structure_text: poscarText,
+        user_notes: materialsBrief || null,
+        current_stage_key: materialsStageKey,
+      });
+      let nextSession = updated;
+      if (currentStep) {
+        const { finalizedStep } = await approveWorkflowStep(
+          currentStep,
+          approvalNote || "POSCAR 已确认并传递给参数确认。"
+        );
+        nextSession = updateStep(updated, finalizedStep);
+        await appendChat(
+          "assistant",
+          "POSCAR 已确认并保存到会话，将作为后续 INCAR、KPOINTS 与执行输入的结构来源。",
+          finalizedStep.stage_key,
+          finalizedStep.id
+        );
+      }
+      setSession(nextSession);
+      setApprovalNote("");
+      setActiveStageKey(getNextStageKey(nextSession.steps, materialsStageKey));
+      setMessage("材料准备已确认，POSCAR 已传给下一流程。");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "无法确认材料准备。");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function handleConfirmBackendPreview() {
+    if (executionBackend === "ssh" && !selectedConnectionId) {
+      setMessage("使用 SSH 后端前，请先选择或保存一个连接。");
+      return;
+    }
+    if (!currentStep) {
+      setMessage("当前计算步骤不存在，无法确认后端信息。");
+      return;
+    }
+
+    setBusyKey("confirm-backend");
+    setMessage(null);
+    try {
+      const updated = await updateWorkflowSession(session.id, {
+        connection_profile_id: executionBackend === "ssh" ? selectedConnectionId : null,
+        current_stage_key: currentStep.stage_key,
+      });
+      const { finalizedStep } = await approveWorkflowStep(
+        currentStep,
+        approvalNote || `后端确认：${executionBackend.toUpperCase()}。`
+      );
+      setSession(updateStep(updated, finalizedStep));
+      setApprovalNote("");
+      await appendChat(
+        "assistant",
+        `计算后端已确认：${executionBackend.toUpperCase()}，启动命令 ${launchCommand || "默认值"}。`,
+        finalizedStep.stage_key,
+        finalizedStep.id
+      );
+      setMessage("计算后端信息已确认，可以提交计算。");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "无法确认计算后端信息。");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function handleCreateInlineConnection(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusyKey("save-connection");
+    setMessage(null);
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    try {
+      const connection = await createConnection({
+        name: formData.get("name"),
+        host: formData.get("host"),
+        port: Number(formData.get("port") ?? 22),
+        username: formData.get("username"),
+        auth_method: formData.get("authMethod"),
+        password: formData.get("password"),
+        ssh_key_path: formData.get("sshKeyPath") || null,
+        remote_workdir: formData.get("remoteWorkdir"),
+        scheduler_type: formData.get("schedulerType"),
+        scheduler_submit_command: formData.get("schedulerSubmitCommand") || null,
+      });
+      setConnectionProfiles((current) => [connection, ...current]);
+      setSelectedConnectionId(connection.id);
+      setExecutionBackend("ssh");
+      setConnectionFormOpen(false);
+      form.reset();
+      setMessage("连接已保存，并已选为当前计算配置。");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "无法保存连接。");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
   async function handleSubmitRun() {
+    if (!parameterStep || !isStepComplete(parameterStep)) {
+      setMessage("提交计算前，请先完成参数确认。");
+      return;
+    }
     if (executionBackend === "ssh" && !selectedConnectionId) {
       setMessage("使用 SSH 后端前，请先选择计算配置。");
       return;
@@ -818,9 +1052,13 @@ export function WorkflowWizard({ initialSession, connections }: WorkflowWizardPr
         step_id: currentStep?.id ?? null,
       });
       setExecutions((current) => [execution, ...current]);
-      if (executionBackend === "ssh" && selectedConnectionId) {
-        setSession((current) => ({ ...current, connection_profile_id: selectedConnectionId }));
-      }
+      const nextStageKey = getNextStageKey(orderedSteps, currentStep?.stage_key ?? activeStageKey);
+      const updatedSession = await updateWorkflowSession(session.id, {
+        connection_profile_id: executionBackend === "ssh" ? selectedConnectionId : null,
+        current_stage_key: nextStageKey,
+      });
+      setSession(updatedSession);
+      setActiveStageKey(nextStageKey);
       await appendChat(
         "assistant",
         `执行已提交。状态=${execution.status} 路径=${execution.remote_path}`,
@@ -888,6 +1126,29 @@ export function WorkflowWizard({ initialSession, connections }: WorkflowWizardPr
 
   function countCompletedTools(stageKey: string): number {
     return getToolsForStage(stageKey).filter((tool) => toolResults[toolKey(stageKey, tool.id)]).length;
+  }
+
+  function renderPreviewFile(title: string, content: string, detail?: string) {
+    return (
+      <article className="preview-file">
+        <div className="inline-spread">
+          <strong>{title}</strong>
+          {detail ? <span className="meta-label">{detail}</span> : null}
+        </div>
+        <pre>{content}</pre>
+      </article>
+    );
+  }
+
+  function renderVaspPreviewFiles(preview: VaspInputPreview, includePoscar = false) {
+    return (
+      <div className="preview-file-grid">
+        {includePoscar ? renderPreviewFile("POSCAR", preview.poscar, "结构输入") : null}
+        {renderPreviewFile("INCAR", preview.incar, "电子与离子参数")}
+        {renderPreviewFile("KPOINTS", preview.kpoints, "布里渊区采样")}
+        {renderPreviewFile("POTCAR.guidance.txt", preview.potcarGuidance, "赝势指引")}
+      </div>
+    );
   }
 
   function renderToolContent(tool: WorkflowTool) {
@@ -1035,7 +1296,7 @@ export function WorkflowWizard({ initialSession, connections }: WorkflowWizardPr
               disabled={executionBackend !== "ssh"}
             >
               <option value="">选择远程配置</option>
-              {connections.map((connection) => (
+              {connectionProfiles.map((connection) => (
                 <option key={connection.id} value={connection.id}>
                   {connection.name} ({connection.username}@{connection.host})
                 </option>
@@ -1106,6 +1367,551 @@ export function WorkflowWizard({ initialSession, connections }: WorkflowWizardPr
     );
   }
 
+  function renderMaterialStagePanel() {
+    return (
+      <section className="content-grid dashboard-grid">
+        <article className="panel form-grid">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">材料准备预览与确认</p>
+              <h2>POSCAR 输入</h2>
+            </div>
+            {currentStep ? <StatusPill status={currentStep.status} /> : null}
+          </div>
+          <label>
+            POSCAR / CIF / 结构文本
+            <textarea
+              rows={12}
+              value={poscarText}
+              onChange={(event) => setPoscarText(event.target.value)}
+              placeholder="在这里粘贴 POSCAR、CIF 片段或已规范化结构文本。"
+            />
+          </label>
+          <label>
+            POSCAR / CIF 来源文件
+            <input type="file" accept=".vasp,.poscar,.cif,.txt,*/*" onChange={handlePoscarFile} />
+          </label>
+          <label>
+            材料准备备注
+            <textarea
+              rows={3}
+              value={materialsBrief}
+              onChange={(event) => setMaterialsBrief(event.target.value)}
+              placeholder="例如：来源数据库、预期氧化态、表面/体相目标、磁性顾虑。"
+            />
+          </label>
+          <label>
+            确认备注
+            <textarea
+              rows={2}
+              value={approvalNote}
+              onChange={(event) => setApprovalNote(event.target.value)}
+              placeholder="说明你确认 POSCAR 的依据。"
+            />
+          </label>
+          <div className="inline-actions">
+            <button
+              className="secondary-button icon-button-label"
+              disabled={busyKey === "save-materials"}
+              onClick={handleSaveMaterialsContext}
+              type="button"
+            >
+              <CheckCircle2 size={16} />
+              {busyKey === "save-materials" ? "保存中..." : "暂存材料上下文"}
+            </button>
+            <button
+              className="primary-button icon-button-label"
+              disabled={busyKey === "confirm-materials"}
+              onClick={handleConfirmMaterialsPreview}
+              type="button"
+            >
+              <CheckCircle2 size={16} />
+              {busyKey === "confirm-materials" ? "确认中..." : "确认 POSCAR 并进入参数确认"}
+            </button>
+          </div>
+          {uploadedName ? <p className="meta-label">已加载文件：{uploadedName}</p> : null}
+        </article>
+
+        <article className="panel form-grid">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">传递给下一流程</p>
+              <h2>POSCAR 预览</h2>
+            </div>
+          </div>
+          {renderPreviewFile("POSCAR", inputPreview.poscar, `${structureSummary.lineCount} 行`)}
+          <div className="checklist">
+            {materialChecklist.map((item) => (
+              <div className={`checklist-item ${item.done ? "check-complete" : ""}`} key={item.label}>
+                <span className="check-indicator">{item.done ? "通过" : "待补"}</span>
+                <div>
+                  <strong>{item.label}</strong>
+                  <p className="support-text">
+                    {item.done ? "会进入下一流程上下文。" : "仍在等待输入。"}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </article>
+      </section>
+    );
+  }
+
+  function renderParameterStagePanel() {
+    return (
+      <section className="panel form-grid">
+        <div className="panel-header">
+          <div>
+            <p className="eyebrow">参数确认预览与确认</p>
+            <h2>INCAR、KPOINTS 与 POTCAR 指引</h2>
+          </div>
+          {currentStep ? <StatusPill status={currentStep.status} /> : null}
+        </div>
+
+        <div className="hint-box">
+          <strong>本地 RAG</strong>
+          <p className="support-text">
+            {knowledgeMatches.length > 0
+              ? `已命中 ${knowledgeMatches.length} 个本地已验证案例，AI 推荐会引用这些案例。`
+              : "本地 RAG 暂无已验证计算案例；当前推荐会先使用工作流上下文和内置 VASP 启发式规则。"}
+          </p>
+        </div>
+
+        <label>
+          给智能体的提示备注
+          <textarea
+            rows={3}
+            value={feedback}
+            onChange={(event) => setFeedback(event.target.value)}
+            placeholder="例如：使用保守收敛设置，预期强关联氧化物行为，并考虑 MLIP 预弛豫。"
+          />
+        </label>
+
+        <div className="inline-actions">
+          <button
+            className="secondary-button icon-button-label"
+            type="button"
+            onClick={() => handleGenerateRecommendations(activeStageKey)}
+            disabled={busyKey === `generate-${activeStageKey}`}
+          >
+            <Wrench size={16} />
+            {busyKey === `generate-${activeStageKey}` ? "生成中..." : "生成 AI 参数建议"}
+          </button>
+          <button
+            className="primary-button icon-button-label"
+            disabled={!currentStep || busyKey === `approve-${activeStageKey}`}
+            onClick={handleCompleteCurrentStep}
+            type="button"
+          >
+            <CheckCircle2 size={16} />
+            {busyKey === `approve-${activeStageKey}` ? "确认中..." : "确认参数并传给计算提交"}
+          </button>
+        </div>
+
+        {currentStep?.recommendation_summary ? (
+          <div className="hint-box">
+            <strong>推荐摘要</strong>
+            <p className="support-text">{currentStep.recommendation_summary}</p>
+          </div>
+        ) : null}
+
+        {currentStep && currentStep.parameters.length > 0 ? (
+          <div className="parameter-table">
+            <div className="parameter-table-head">
+              <span>参数</span>
+              <span>AI 建议</span>
+              <span>最终值</span>
+            </div>
+            {currentStep.parameters.map((parameter) => (
+              <div className="parameter-row" key={parameter.id}>
+                <div>
+                  <strong>{parameter.name}</strong>
+                  <p className="meta-label">{formatParameterCategory(parameter.category)}</p>
+                </div>
+                <div className="parameter-cell">
+                  <pre>{serializeValue(parameter.suggested_value)}</pre>
+                  <p className="support-text">{parameter.rationale}</p>
+                  <p className="meta-label">{parameterSourceSummary(parameter)}</p>
+                  {parameter.uncertainty_note ? (
+                    <p className="warning-text">{parameter.uncertainty_note}</p>
+                  ) : null}
+                </div>
+                <div className="parameter-cell">
+                  <textarea
+                    rows={3}
+                    value={draftValues[parameter.name] ?? ""}
+                    onChange={(event) => updateDraft(parameter.name, event.target.value)}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="muted-text">
+            参数确认尚未生成建议。点击“生成 AI 参数建议”后，系统会先查本地 RAG；当前没有计算归档时会返回空案例。
+          </p>
+        )}
+
+        {renderVaspPreviewFiles(inputPreview, true)}
+
+        <label>
+          完成备注
+          <textarea
+            rows={2}
+            value={approvalNote}
+            onChange={(event) => setApprovalNote(event.target.value)}
+            placeholder="说明你为什么接受或编辑这些输入文件。"
+          />
+        </label>
+      </section>
+    );
+  }
+
+  function renderInlineConnectionForm() {
+    if (!connectionFormOpen) {
+      return null;
+    }
+
+    return (
+      <form className="inline-connection-form" onSubmit={handleCreateInlineConnection}>
+        <div className="panel-header">
+          <div>
+            <p className="eyebrow">流程内保存连接</p>
+            <h3>新增 SSH 计算配置</h3>
+          </div>
+        </div>
+        <div className="compact-grid">
+          <label>
+            连接名称
+            <input name="name" defaultValue="VASP 集群" required />
+          </label>
+          <label>
+            主机 / IP
+            <input name="host" placeholder="192.168.1.10" required />
+          </label>
+          <label>
+            端口
+            <input name="port" defaultValue="22" required />
+          </label>
+          <label>
+            用户名
+            <input name="username" placeholder="vaspuser" required />
+          </label>
+          <label>
+            认证方式
+            <select name="authMethod" defaultValue="password">
+              <option value="password">密码</option>
+              <option value="ssh_key">SSH 私钥路径</option>
+            </select>
+          </label>
+          <label>
+            密码
+            <input name="password" type="password" placeholder="可留空并改用 SSH 私钥" />
+          </label>
+          <label>
+            SSH 私钥路径
+            <input name="sshKeyPath" placeholder="~/.ssh/id_rsa" />
+          </label>
+          <label>
+            远程工作目录
+            <input name="remoteWorkdir" defaultValue="/scratch/vasp-agent" required />
+          </label>
+          <label>
+            调度器
+            <select name="schedulerType" defaultValue="slurm">
+              <option value="direct">直接 shell</option>
+              <option value="slurm">SLURM</option>
+              <option value="pbs">PBS</option>
+            </select>
+          </label>
+          <label>
+            提交命令
+            <input name="schedulerSubmitCommand" placeholder="例如：sbatch run_job.sh" />
+          </label>
+        </div>
+        <div className="inline-actions">
+          <button className="primary-button icon-button-label" disabled={busyKey === "save-connection"} type="submit">
+            <CheckCircle2 size={16} />
+            {busyKey === "save-connection" ? "保存中..." : "保存并选用连接"}
+          </button>
+          <button className="secondary-button" onClick={() => setConnectionFormOpen(false)} type="button">
+            收起
+          </button>
+        </div>
+      </form>
+    );
+  }
+
+  function renderCalculationStagePanel() {
+    const parametersReady = Boolean(parameterStep && isStepComplete(parameterStep));
+    return (
+      <section className="panel form-grid">
+        <div className="panel-header">
+          <div>
+            <p className="eyebrow">计算确认预览与确认</p>
+            <h2>后端信息</h2>
+          </div>
+          {currentStep ? <StatusPill status={currentStep.status} /> : null}
+        </div>
+
+        <div className="compact-grid">
+          <label>
+            执行后端
+            <select
+              value={executionBackend}
+              onChange={(event) => setExecutionBackend(event.target.value as "ase" | "ssh")}
+            >
+              <option value="ase">ASE / 本地 VASP 适配器</option>
+              <option value="ssh">SSH / 调度器主机</option>
+            </select>
+          </label>
+          <label>
+            计算配置
+            <select
+              value={selectedConnectionId}
+              onChange={(event) => setSelectedConnectionId(event.target.value)}
+              disabled={executionBackend !== "ssh"}
+            >
+              <option value="">选择远程配置</option>
+              {connectionProfiles.map((connection) => (
+                <option key={connection.id} value={connection.id}>
+                  {connection.name} ({connection.username}@{connection.host})
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            启动命令
+            <input
+              value={launchCommand}
+              onChange={(event) => setLaunchCommand(event.target.value)}
+              placeholder="例如：mpirun -np 32 vasp_std"
+            />
+          </label>
+          <label>
+            工作目录覆盖
+            <input
+              value={workingDirectory}
+              onChange={(event) => setWorkingDirectory(event.target.value)}
+              placeholder="可选自定义工作目录"
+            />
+          </label>
+        </div>
+
+        <div className="inline-actions">
+          <button className="secondary-button" type="button" onClick={() => setConnectionFormOpen((open) => !open)}>
+            {connectionFormOpen ? "收起连接表单" : "保存新连接"}
+          </button>
+        </div>
+        {renderInlineConnectionForm()}
+
+        <div className="mini-grid">
+          <div className="mini-metric">
+            <strong>后端</strong>
+            <span>{executionBackend.toUpperCase()}</span>
+            <p className="support-text">
+              {executionBackend === "ase" ? "使用 ASE/VASP 本地适配器。" : "通过 SSH 连接调度器主机。"}
+            </p>
+          </div>
+          <div className="mini-metric">
+            <strong>连接</strong>
+            <span>
+              {executionBackend === "ssh" && selectedConnection
+                ? `${selectedConnection.username}@${selectedConnection.host}:${selectedConnection.port}`
+                : executionBackend === "ssh"
+                  ? "尚未选择"
+                  : "不需要 SSH 连接"}
+            </span>
+            <p className="support-text">
+              {selectedConnection ? formatSchedulerType(selectedConnection.scheduler_type) : "确认后会保存到会话。"}
+            </p>
+          </div>
+          <div className="mini-metric">
+            <strong>启动命令</strong>
+            <span>{launchCommand || "vasp_std"}</span>
+            <p className="support-text">提交前仍可修改。</p>
+          </div>
+          <div className="mini-metric">
+            <strong>工作目录</strong>
+            <span>{workingDirectory || selectedConnection?.remote_workdir || "由后端生成"}</span>
+            <p className="support-text">确认后会随执行请求发送。</p>
+          </div>
+        </div>
+
+        {!parametersReady ? (
+          <div className="hint-box warning-surface">
+            <strong>等待参数确认</strong>
+            <p className="support-text">提交计算前必须先确认参数输入文件。</p>
+          </div>
+        ) : null}
+
+        <label>
+          后端确认备注
+          <textarea
+            rows={2}
+            value={approvalNote}
+            onChange={(event) => setApprovalNote(event.target.value)}
+            placeholder="说明你确认该后端、命令或资源设置的依据。"
+          />
+        </label>
+
+        <div className="inline-actions">
+          <button
+            className="secondary-button icon-button-label"
+            disabled={!currentStep || busyKey === "confirm-backend"}
+            onClick={handleConfirmBackendPreview}
+            type="button"
+          >
+            <CheckCircle2 size={16} />
+            {busyKey === "confirm-backend" ? "确认中..." : "确认后端信息"}
+          </button>
+          <button
+            className="primary-button icon-button-label"
+            disabled={!parametersReady || busyKey === "execute"}
+            onClick={handleSubmitRun}
+            type="button"
+          >
+            <Send size={16} />
+            {busyKey === "execute" ? "提交中..." : "提交计算并进入结果归档"}
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  function renderResultArchiveStagePanel() {
+    return (
+      <section className="content-grid dashboard-grid">
+        <article className="panel form-grid">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">结果归档预览与确认</p>
+              <h2>后端输出</h2>
+            </div>
+            {currentStep ? <StatusPill status={currentStep.status} /> : null}
+          </div>
+          {latestExecution ? (
+            <div className="stack-list">
+              <article className="execution-card">
+                <div className="inline-spread">
+                  <strong>{latestExecution.id.slice(0, 8)}</strong>
+                  <StatusPill status={latestExecution.status} />
+                </div>
+                {summarizeExecution(latestExecution).map((line) => (
+                  <p className="support-text" key={`${latestExecution.id}-${line}`}>
+                    {line}
+                  </p>
+                ))}
+                <p className="meta-label">路径：{latestExecution.remote_path}</p>
+                {latestExecution.output_manifest ? (
+                  <pre>{JSON.stringify(latestExecution.output_manifest, null, 2)}</pre>
+                ) : null}
+                {latestExecution.stdout_excerpt ? <pre>{latestExecution.stdout_excerpt}</pre> : null}
+                {latestExecution.stderr_excerpt ? <pre>{latestExecution.stderr_excerpt}</pre> : null}
+              </article>
+              <button
+                className="secondary-button icon-button-label align-start"
+                disabled={busyKey === `refresh-${latestExecution.id}`}
+                onClick={() => handleRefreshExecution(latestExecution.id)}
+                type="button"
+              >
+                <RefreshCw size={16} />
+                {busyKey === `refresh-${latestExecution.id}` ? "刷新中..." : "刷新后端状态"}
+              </button>
+            </div>
+          ) : (
+            <p className="muted-text">还没有提交执行。提交计算后，这里会显示后端状态、输出片段和归档依据。</p>
+          )}
+
+          <label>
+            归档确认备注
+            <textarea
+              rows={3}
+              value={approvalNote}
+              onChange={(event) => setApprovalNote(event.target.value)}
+              placeholder="说明是否收敛、是否可复用，以及哪些参数或结果应进入本地 RAG。"
+            />
+          </label>
+          <button
+            className="primary-button icon-button-label align-start"
+            disabled={!currentStep || !latestExecution || busyKey === `approve-${activeStageKey}`}
+            onClick={handleCompleteCurrentStep}
+            type="button"
+          >
+            <CheckCircle2 size={16} />
+            {busyKey === `approve-${activeStageKey}` ? "归档中..." : "确认归档到知识库"}
+          </button>
+        </article>
+
+        <article className="panel form-grid">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">归档内容</p>
+              <h2>输入文件快照</h2>
+            </div>
+          </div>
+          {renderVaspPreviewFiles(archivedInputPreview, true)}
+          <div className="stack-list">
+            {chatMessages.slice(-3).map((item) => (
+              <article className={`chat-card role-${item.role}`} key={item.id}>
+                <div className="inline-spread">
+                  <strong>{ROLE_LABELS[item.role]}</strong>
+                  <span className="meta-label">{new Date(item.created_at).toLocaleString()}</span>
+                </div>
+                <pre>{item.content}</pre>
+              </article>
+            ))}
+            {chatMessages.length === 0 ? <p className="muted-text">还没有对话记录。</p> : null}
+          </div>
+        </article>
+      </section>
+    );
+  }
+
+  function renderGenericStagePanel() {
+    return (
+      <section className="panel form-grid">
+        <div className="panel-header">
+          <div>
+            <p className="eyebrow">流程预览与确认</p>
+            <h2>生成建议并完成本步骤</h2>
+          </div>
+          {currentStep ? <StatusPill status={currentStep.status} /> : null}
+        </div>
+        <label>
+          给智能体的提示备注
+          <textarea
+            rows={3}
+            value={feedback}
+            onChange={(event) => setFeedback(event.target.value)}
+            placeholder="补充该阶段需要智能体考虑的限制。"
+          />
+        </label>
+        <div className="inline-actions">
+          <button
+            className="secondary-button icon-button-label"
+            type="button"
+            onClick={() => handleGenerateRecommendations(activeStageKey)}
+            disabled={busyKey === `generate-${activeStageKey}`}
+          >
+            <Wrench size={16} />
+            {busyKey === `generate-${activeStageKey}` ? "生成中..." : "生成建议"}
+          </button>
+          <button
+            className="primary-button icon-button-label"
+            disabled={!currentStep || busyKey === `approve-${activeStageKey}`}
+            onClick={handleCompleteCurrentStep}
+            type="button"
+          >
+            <CheckCircle2 size={16} />
+            {busyKey === `approve-${activeStageKey}` ? "完成中..." : "确认并进入下一流程"}
+          </button>
+        </div>
+      </section>
+    );
+  }
+
   const materialChecklist = [
     {
       label: "已附加结构来源",
@@ -1148,7 +1954,7 @@ export function WorkflowWizard({ initialSession, connections }: WorkflowWizardPr
             <span className="metric-label">提交记录</span>
           </article>
           <article className="metric-card">
-            <span className="metric-value">{connections.length}</span>
+            <span className="metric-value">{connectionProfiles.length}</span>
             <span className="metric-label">可用连接</span>
           </article>
         </div>
@@ -1316,295 +2122,13 @@ export function WorkflowWizard({ initialSession, connections }: WorkflowWizardPr
                 })}
               </section>
 
-              {activeStageKey === "materials-prep" || activeStageKey === "structure-prep" ? (
-                <section className="content-grid dashboard-grid">
-                  <article className="panel form-grid">
-                    <div className="panel-header">
-                      <div>
-                        <p className="eyebrow">材料输入</p>
-                        <h2>结构文本</h2>
-                      </div>
-                    </div>
-                    <label>
-                      POSCAR / CIF / 结构文本
-                      <textarea
-                        rows={10}
-                        value={poscarText}
-                        onChange={(event) => setPoscarText(event.target.value)}
-                        placeholder="在这里粘贴 POSCAR、CIF 片段或已规范化结构文本。"
-                      />
-                    </label>
-                    <button
-                      className="primary-button icon-button-label"
-                      disabled={busyKey === "save-materials"}
-                      onClick={handleSaveMaterialsContext}
-                      type="button"
-                    >
-                      <CheckCircle2 size={16} />
-                      {busyKey === "save-materials" ? "保存中..." : "保存材料上下文"}
-                    </button>
-                    {uploadedName ? <p className="meta-label">已加载文件：{uploadedName}</p> : null}
-                  </article>
-
-                  <article className="panel">
-                    <div className="panel-header">
-                      <div>
-                        <p className="eyebrow">检查清单</p>
-                        <h2>准备状态</h2>
-                      </div>
-                    </div>
-                    <div className="checklist">
-                      {materialChecklist.map((item) => (
-                        <div className={`checklist-item ${item.done ? "check-complete" : ""}`} key={item.label}>
-                          <span className="check-indicator">{item.done ? "通过" : "待补"}</span>
-                          <div>
-                            <strong>{item.label}</strong>
-                            <p className="support-text">
-                              {item.done ? "已记录到当前流程。" : "仍在等待输入。"}
-                            </p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </article>
-                </section>
-              ) : null}
-
-              <section className="panel form-grid">
-                <div className="panel-header">
-                  <div>
-                    <p className="eyebrow">{isParameterStage ? "参数确认" : "流程确认"}</p>
-                    <h2>{isParameterStage ? "AI 推荐参数与人工确认" : "生成建议并完成本步骤"}</h2>
-                  </div>
-                  {currentStep ? <StatusPill status={currentStep.status} /> : null}
-                </div>
-
-                {isParameterStage ? (
-                  <div className="hint-box">
-                    <strong>本地 RAG</strong>
-                    <p className="support-text">
-                      {knowledgeMatches.length > 0
-                        ? `已命中 ${knowledgeMatches.length} 个本地已验证案例，AI 推荐会引用这些案例。`
-                        : "本地 RAG 暂无已验证计算案例；当前推荐会先使用工作流上下文和内置 VASP 启发式规则。"}
-                    </p>
-                  </div>
-                ) : null}
-
-                <label>
-                  给智能体的提示备注
-                  <textarea
-                    rows={3}
-                    value={feedback}
-                    onChange={(event) => setFeedback(event.target.value)}
-                    placeholder="例如：使用保守收敛设置，预期强关联氧化物行为，并考虑 MLIP 预弛豫。"
-                  />
-                </label>
-
-                <div className="inline-actions">
-                  <button
-                    className="secondary-button icon-button-label"
-                    type="button"
-                    onClick={() => handleGenerateRecommendations(activeStageKey)}
-                    disabled={busyKey === `generate-${activeStageKey}`}
-                  >
-                    <Wrench size={16} />
-                    {busyKey === `generate-${activeStageKey}` ? "生成中..." : isParameterStage ? "生成 AI 参数建议" : "生成建议"}
-                  </button>
-                  <button
-                    className="primary-button icon-button-label"
-                    disabled={!currentStep || busyKey === `approve-${activeStageKey}`}
-                    onClick={handleCompleteCurrentStep}
-                    type="button"
-                  >
-                    <CheckCircle2 size={16} />
-                    {busyKey === `approve-${activeStageKey}` ? "完成中..." : isParameterStage ? "确认参数" : "完成本流程"}
-                  </button>
-                </div>
-
-                {currentStep?.recommendation_summary ? (
-                  <div className="hint-box">
-                    <strong>推荐摘要</strong>
-                    <p className="support-text">{currentStep.recommendation_summary}</p>
-                  </div>
-                ) : null}
-
-                {currentStep && currentStep.parameters.length > 0 ? (
-                  <div className="parameter-table">
-                    <div className="parameter-table-head">
-                      <span>参数</span>
-                      <span>AI 建议</span>
-                      <span>最终值</span>
-                    </div>
-                    {currentStep.parameters.map((parameter) => (
-                      <div className="parameter-row" key={parameter.id}>
-                        <div>
-                          <strong>{parameter.name}</strong>
-                          <p className="meta-label">{formatParameterCategory(parameter.category)}</p>
-                        </div>
-                        <div className="parameter-cell">
-                          <pre>{serializeValue(parameter.suggested_value)}</pre>
-                          <p className="support-text">{parameter.rationale}</p>
-                          <p className="meta-label">{parameterSourceSummary(parameter)}</p>
-                          {parameter.uncertainty_note ? (
-                            <p className="warning-text">{parameter.uncertainty_note}</p>
-                          ) : null}
-                        </div>
-                        <div className="parameter-cell">
-                          <textarea
-                            rows={3}
-                            value={draftValues[parameter.name] ?? ""}
-                            onChange={(event) => updateDraft(parameter.name, event.target.value)}
-                          />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="muted-text">
-                    {isParameterStage
-                      ? "参数确认尚未生成建议。点击“生成 AI 参数建议”后，系统会先查本地 RAG；当前没有计算归档时会返回空案例。"
-                      : "该流程尚未生成参数。需要时先生成建议，再点击完成本流程。"}
-                  </p>
-                )}
-
-                <label>
-                  完成备注
-                  <textarea
-                    rows={2}
-                    value={approvalNote}
-                    onChange={(event) => setApprovalNote(event.target.value)}
-                    placeholder="说明你为什么接受、编辑或完成此流程。"
-                  />
-                </label>
-              </section>
-
-              {isCalculationStage ? (
-              <section className="panel form-grid">
-                <div className="panel-header">
-                  <div>
-                    <p className="eyebrow">最后一步</p>
-                    <h2>提交计算</h2>
-                  </div>
-                  <span className={`status-pill ${finalReady ? "status-completed" : ""}`}>
-                    {finalReady ? "流程已完成" : "可随时提交"}
-                  </span>
-                </div>
-                <div className="compact-grid">
-                  <label>
-                    执行后端
-                    <select
-                      value={executionBackend}
-                      onChange={(event) => setExecutionBackend(event.target.value as "ase" | "ssh")}
-                    >
-                      <option value="ase">ASE / 本地 VASP 适配器</option>
-                      <option value="ssh">SSH / 调度器主机</option>
-                    </select>
-                  </label>
-                  <label>
-                    计算配置
-                    <select
-                      value={selectedConnectionId}
-                      onChange={(event) => setSelectedConnectionId(event.target.value)}
-                      disabled={executionBackend !== "ssh"}
-                    >
-                      <option value="">选择远程配置</option>
-                      {connections.map((connection) => (
-                        <option key={connection.id} value={connection.id}>
-                          {connection.name} ({connection.username}@{connection.host})
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    启动命令
-                    <input
-                      value={launchCommand}
-                      onChange={(event) => setLaunchCommand(event.target.value)}
-                      placeholder="例如：mpirun -np 32 vasp_std"
-                    />
-                  </label>
-                  <label>
-                    工作目录覆盖
-                    <input
-                      value={workingDirectory}
-                      onChange={(event) => setWorkingDirectory(event.target.value)}
-                      placeholder="可选自定义工作目录"
-                    />
-                  </label>
-                </div>
-                <div className="hint-box">
-                  <strong>当前路由</strong>
-                  <p className="support-text">
-                    {executionBackend === "ase"
-                      ? "将通过 ASE/VASP 执行路径提交。"
-                      : selectedConnection
-                        ? `将使用 ${formatSchedulerType(selectedConnection.scheduler_type)} 连接到 ${selectedConnection.name}。`
-                        : "提交远程作业前请选择 SSH 连接配置。"}
-                  </p>
-                </div>
-                <button
-                  className="primary-button icon-button-label"
-                  disabled={busyKey === "execute"}
-                  onClick={handleSubmitRun}
-                  type="button"
-                >
-                  <Send size={16} />
-                  {busyKey === "execute" ? "提交中..." : "提交"}
-                </button>
-              </section>
-              ) : null}
-
-              {isResultStage ? (
-              <section className="content-grid dashboard-grid">
-                <article className="panel">
-                  <div className="panel-header">
-                    <div>
-                      <p className="eyebrow">提交记录</p>
-                      <h2>状态与输出</h2>
-                    </div>
-                  </div>
-                  <div className="stack-list">
-                    {executions.slice(0, 3).map((execution) => (
-                      <article className="execution-card" key={execution.id}>
-                        <div className="inline-spread">
-                          <strong>{execution.id.slice(0, 8)}</strong>
-                          <StatusPill status={execution.status} />
-                        </div>
-                        {summarizeExecution(execution).map((line) => (
-                          <p className="support-text" key={`${execution.id}-${line}`}>
-                            {line}
-                          </p>
-                        ))}
-                        {execution.stdout_excerpt ? <pre>{execution.stdout_excerpt}</pre> : null}
-                        {execution.stderr_excerpt ? <pre>{execution.stderr_excerpt}</pre> : null}
-                      </article>
-                    ))}
-                    {executions.length === 0 ? <p className="muted-text">还没有提交执行。</p> : null}
-                  </div>
-                </article>
-
-                <article className="panel">
-                  <div className="panel-header">
-                    <div>
-                      <p className="eyebrow">记录</p>
-                      <h2>最近对话</h2>
-                    </div>
-                  </div>
-                  <div className="stack-list">
-                    {chatMessages.slice(-3).map((item) => (
-                      <article className={`chat-card role-${item.role}`} key={item.id}>
-                        <div className="inline-spread">
-                          <strong>{ROLE_LABELS[item.role]}</strong>
-                          <span className="meta-label">{new Date(item.created_at).toLocaleString()}</span>
-                        </div>
-                        <pre>{item.content}</pre>
-                      </article>
-                    ))}
-                    {chatMessages.length === 0 ? <p className="muted-text">还没有对话记录。</p> : null}
-                  </div>
-                </article>
-              </section>
-              ) : null}
+              {isMaterialStage ? renderMaterialStagePanel() : null}
+              {isParameterStage ? renderParameterStagePanel() : null}
+              {isCalculationStage ? renderCalculationStagePanel() : null}
+              {isResultStage ? renderResultArchiveStagePanel() : null}
+              {!isMaterialStage && !isParameterStage && !isCalculationStage && !isResultStage
+                ? renderGenericStagePanel()
+                : null}
             </>
           )}
         </div>

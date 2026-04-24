@@ -326,6 +326,28 @@ p {
   align-self: end;
 }
 
+.flow-card-preview {
+  display: grid;
+  gap: 0.85rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--border);
+}
+
+.flow-card-preview label {
+  display: grid;
+  gap: 0.45rem;
+  font-weight: 700;
+}
+
+.compact-preview-file {
+  padding: 0.75rem;
+}
+
+.compact-preview-file pre {
+  max-height: 150px;
+  font-size: 0.8rem;
+}
+
 .compact-stage-row {
   display: grid;
   gap: 0.25rem;
@@ -593,6 +615,40 @@ input[type="file"] {
   border: 1px solid rgba(13, 89, 91, 0.12);
   border-radius: 8px;
   background: rgba(232, 243, 248, 0.66);
+}
+
+.preview-file-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+.preview-file {
+  display: grid;
+  gap: 0.65rem;
+  min-width: 0;
+  padding: 0.95rem;
+  border: 1px solid rgba(60, 77, 76, 0.13);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.preview-file pre {
+  max-height: 280px;
+  overflow: auto;
+  padding: 0.85rem;
+  border: 1px solid rgba(60, 77, 76, 0.1);
+  border-radius: 8px;
+  background: rgba(247, 250, 252, 0.92);
+}
+
+.inline-connection-form {
+  display: grid;
+  gap: 0.9rem;
+  padding: 1rem;
+  border: 1px solid rgba(13, 89, 91, 0.14);
+  border-radius: 8px;
+  background: rgba(232, 243, 248, 0.52);
 }
 
 .warning-surface {
@@ -991,6 +1047,7 @@ input[type="file"] {
   .dashboard-grid,
   .meta-grid,
   .mini-grid,
+  .preview-file-grid,
   .parameter-table-head,
   .parameter-row {
     grid-template-columns: 1fr;
