@@ -63,8 +63,8 @@ export function ConnectionForm({ initialConnections }: ConnectionFormProps) {
       <form className="panel form-grid" onSubmit={handleCreate}>
         <div className="panel-header">
           <div>
-            <p className="eyebrow">Remote execution</p>
-            <h2>SSH connection settings</h2>
+            <p className="eyebrow">Compute connector</p>
+            <h2>DFT backend connection settings</h2>
           </div>
           <button className="secondary-button" type="button" onClick={handleTest}>
             Test latest profile
@@ -132,7 +132,7 @@ export function ConnectionForm({ initialConnections }: ConnectionFormProps) {
         <div className="panel-header">
           <div>
             <p className="eyebrow">Profiles</p>
-            <h2>Saved remote machines</h2>
+            <h2>Saved compute targets</h2>
           </div>
         </div>
         <div className="stack-list">

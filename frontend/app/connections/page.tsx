@@ -10,11 +10,11 @@ export default async function ConnectionsPage() {
     <div className="content-stack">
       <section className="hero compact-hero">
         <div>
-          <p className="eyebrow">Remote execution setup</p>
-          <h1>Store connection metadata, test SSH access, and keep execution practical.</h1>
+          <p className="eyebrow">DFT backend bridge</p>
+          <h1>Store compute-host metadata, test connectivity, and prepare real execution routes.</h1>
           <p className="lede">
-            The MVP is intentionally lightweight here: it records connection settings, working
-            directories, and scheduler preferences without trying to become a full cluster platform.
+            This page is the connector layer for the studio: keep SSH targets, scheduler defaults,
+            and working directories in one place so reviewed DFT jobs can be routed cleanly later.
           </p>
         </div>
       </section>

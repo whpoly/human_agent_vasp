@@ -6,14 +6,14 @@ export function AppShell({ children }: { children: ReactNode }) {
     <div className="app-shell">
       <header className="topbar">
         <div>
-          <p className="eyebrow">Human-in-the-loop VASP assistant</p>
+          <p className="eyebrow">Human-in-the-loop DFT platform</p>
           <Link className="brand" href="/">
-            VASP Workflow Copilot
+            DFT Agent Studio
           </Link>
         </div>
         <nav className="nav-links">
-          <Link href="/">Workflows</Link>
-          <Link href="/connections">SSH Connections</Link>
+          <Link href="/">Workbench</Link>
+          <Link href="/connections">Compute Links</Link>
         </nav>
       </header>
       <main className="page-frame">{children}</main>

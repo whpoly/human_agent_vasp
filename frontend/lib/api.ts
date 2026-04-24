@@ -150,6 +150,10 @@ export async function searchKnowledge(payload: Record<string, unknown>): Promise
   });
 }
 
+export async function getKnowledgeEntries(): Promise<KnowledgeEntry[]> {
+  return apiFetch<KnowledgeEntry[]>("/knowledge");
+}
+
 export async function getChatMessages(sessionId: string): Promise<ConversationMessage[]> {
   return apiFetch<ConversationMessage[]>(`/workflow-sessions/${sessionId}/chat`);
 }
