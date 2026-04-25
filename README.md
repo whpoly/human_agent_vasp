@@ -1,48 +1,73 @@
-# VASP Human-in-the-Loop Agent MVP
+# 自动化 DFT 工作台
 
-This repository contains a production-oriented MVP for a human-in-the-loop agent system that assists with VASP-based DFT workflows. The product is intentionally designed to keep scientists in control: the agent recommends parameters, preserves rationale and provenance, and requires explicit human approval before anything is executed. The backend now supports ASE-based VASP execution so future MLIP calculators can fit into the same orchestration path.
+这是一个面向 VASP 计算的本地桌面项目，不再走网页前端路线。新的工作模式是：用户先输入材料和计算要求，AI 生成结构与 VASP 输入文件草案；随后用户再用 VESTA、模板页和审批页主动调整。
 
-## What is included
+后续开发请优先阅读：
 
-- `backend/`: FastAPI API with workflow orchestration, recommendation engine, SSH execution abstraction, audit logging, and knowledge-base retrieval.
-- `frontend/`: Next.js app for workflow creation, step review, parameter editing, approval, SSH connection setup, and execution monitoring.
-- `docs/`: Architecture, data model, API, workflow, and implementation notes.
-- `docker-compose.yml`: Local PostgreSQL + pgvector-compatible development database.
-- Frontend quick run checklist: [docs/frontend-run-checklist.md](docs/frontend-run-checklist.md)
+- [docs/00_READ_FIRST_PROJECT_SUMMARY.md](docs/00_READ_FIRST_PROJECT_SUMMARY.md)
 
-## Backend setup
+## 当前实现
 
-1. Create a Python virtual environment.
-2. Install dependencies with `pip install -r backend/requirements.txt`.
-3. Copy `backend/.env.example` to `backend/.env` and adjust connection strings and secrets.
-4. Start PostgreSQL with `docker compose up -d`.
-5. Run the API with `uvicorn app.main:app --reload --app-dir backend`.
+- `desktop/dft_automation_workbench.py`：主程序，Tkinter 桌面应用。
+- `desktop/build_exe.ps1`：Windows exe 打包脚本。
+- `desktop/dist/DFT-Automation-Workbench.exe`：打包后的可执行文件。
 
-The API exposes OpenAPI docs at `http://localhost:8000/docs`.
+## 已有功能
 
-### ASE execution notes
+- AI 任务生成：输入材料和计算要求，生成初始 POSCAR、推荐模板、INCAR/KPOINTS 草案。
+- 读取、粘贴和编辑 CIF/POSCAR。
+- 解析结构摘要：格式、标题、元素、原子数、晶胞。
+- 调用本地 `VESTA.exe` 打开当前结构。
+- 选择 VASP 工作流模板：Relax、Static SCF、DOS、Band。
+- 生成 `INCAR`、`KPOINTS`、`POSCAR`、`POTCAR.required.txt`、`RUN_METADATA.json`、`run_vasp.ps1`。
+- 对 CIF 尝试转换为 POSCAR。
+- 人工审批检查：结构、参数、POTCAR、执行设置。
+- 本地执行入口：通过用户填写的 VASP 命令启动运行。
+- 结果解析入口：读取 `OSZICAR` 和 `OUTCAR` 摘要。
+- AI 草案能力：材料公式到初始结构/输入文件、元素替换、晶胞缩放、增加 c 方向真空层、参数建议文本。
 
-- The default execution backend is now `ASE`, using `ase.calculators.vasp.Vasp`.
-- Set `ASE_VASP_COMMAND` in `backend/.env` or provide a `launch_command` in the approved `submission-prep` stage.
-- ASE runs are written beneath `ASE_RUN_ROOT` and produce an `ase-run-spec.json`, `ase-result.json`, `vasp.out`, and final structure files.
-- The older SSH execution path is still available for compatibility, but ASE is the preferred backend for future calculator abstraction.
+## 直接运行
 
-## Frontend setup
+```powershell
+cd desktop
+python dft_automation_workbench.py
+```
 
-1. Install Node.js 20+.
-2. In `frontend/`, install dependencies with `npm install`.
-3. Copy `frontend/.env.local.example` to `frontend/.env.local`.
-4. Run the app with `npm run dev`.
+如果系统没有 `python`，可以直接运行已打包的 exe：
 
-The frontend expects the backend at `http://localhost:8000/api/v1` by default.
+```text
+desktop\dist\DFT-Automation-Workbench.exe
+```
 
-## Simplified CrewAI example
+## 重新打包 exe
 
-If you want a minimal single-run workflow using one remote machine, one structure file, and an external DB, use:
+```powershell
+cd desktop
+.\build_exe.ps1
+```
 
-- [backend/examples/crewai_simple/README.md](backend/examples/crewai_simple/README.md)
-- [backend/examples/crewai_simple/run_pipeline.py](backend/examples/crewai_simple/run_pipeline.py)
+如果本机没有 Python，脚本会尝试使用 Codex 自带 Python；如果需要指定 Python，可设置：
 
-## Verification
+```powershell
+$env:PYTHON="C:\Path\To\python.exe"
+.\build_exe.ps1
+```
 
-The backend codebase is designed to be syntax-checkable with `python -m compileall backend/app`. The frontend code is scaffolded but was not executed in this environment because Node.js is not installed here.
+## VESTA
+
+程序会尝试自动查找常见 VESTA 安装路径，也可以在界面中点击“选择 VESTA.exe”。VESTA 会作为本地独立窗口打开，不会嵌入应用内部。
+
+可选环境变量：
+
+```powershell
+$env:VESTA_PATH="C:\Program Files\VESTA-win64\VESTA.exe"
+```
+
+## VASP 执行
+
+程序不会自带 VASP，也不会自动生成 POTCAR。生成运行目录后，请按 `POTCAR.required.txt` 的元素顺序自行准备 `POTCAR`，再在“执行与日志”页填写本机可用的 VASP 命令，例如：
+
+```text
+vasp_std
+mpiexec -n 16 vasp_std
+```
